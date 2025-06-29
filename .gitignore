@@ -1,0 +1,89 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.langgraph_api
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# VS Code settings
+.vscode/
+
+# macOS system files
+.DS_Store
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+.python-version
+
+# Log files
+*.log
+
+# System files
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# pyenv
+.python-version
+
+# dotenv environment variables file
+.env
+.env.*
+
+# mypy
+.mypy_cache/
+
+# Pyre type checker
+.pyre/
+
+# Pytype
+.pytype/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Pytest
+.pytest_cache/
+
+# Build artifacts
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Unit test / coverage reports
+.tox/
+.nox/
+
+# Sphinx documentation
+docs/_build/
+
+# Local IDE settings
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# LangGraph local files
+langgraph.json
