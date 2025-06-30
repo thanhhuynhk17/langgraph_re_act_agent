@@ -85,5 +85,3 @@ docs/_build/
 *.sublime-project
 *.sublime-workspace
 
-# LangGraph local files
-langgraph.json
