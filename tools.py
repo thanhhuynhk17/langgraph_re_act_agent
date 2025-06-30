@@ -59,12 +59,21 @@ class ListFilesInput(BaseModel):
         default=None,
         description="Directory path to list files from. Leave empty to use the default allowed path."
     )
+    max_depth: int = Field(
+        default=1,
+        ge=0,
+        description="Maximum depth for recursive directory listing. 0 means only the root directory."
+    )
 @tool(
     args_schema=ListFilesInput,
     
 )
-def list_files(directory: str) -> str:
-    """List all files in the specified directory as a tree."""
+def list_files(directory: str, max_depth: int = 1) -> str:
+    """
+    List all files in the specified directory as a tree up to a certain depth.
+    :param directory: thư mục cần xem.
+    :param max_depth: số cấp con tối đa, mặc định = 1.
+    """
     directory = directory or allowed_location_dir()
 
     if not os.path.exists(directory):
@@ -73,21 +82,29 @@ def list_files(directory: str) -> str:
         return f"'{directory}' is not a directory."
 
     tree_lines = []
+    base_depth = directory.rstrip(os.sep).count(os.sep)
 
     def walk(dir_path: str, prefix: str = ""):
+        current_depth = dir_path.rstrip(os.sep).count(os.sep) - base_depth
+        if current_depth > max_depth:
+            return
+
         entries = sorted(os.listdir(dir_path))
         for idx, entry in enumerate(entries):
             full_path = os.path.join(dir_path, entry)
             connector = "└── " if idx == len(entries) - 1 else "├── "
             tree_lines.append(f"{prefix}{connector}{entry}")
-            if os.path.isdir(full_path):
+
+            # Nếu là thư mục và sâu chưa vượt max_depth
+            if os.path.isdir(full_path) and current_depth < max_depth:
                 extension = "    " if idx == len(entries) - 1 else "│   "
                 walk(full_path, prefix + extension)
 
-    tree_lines.append(directory.rstrip("/") + "/")
+    tree_lines.append(directory.rstrip(os.sep) + os.sep)
     walk(directory)
 
     return "\n".join(tree_lines)
+
 
 # ---------------------------
 # Export list

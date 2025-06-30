@@ -15,10 +15,7 @@ Observation: the result of the action
 ... (this Thought/Action/Action Input/Observation can be repeated zero or more times)
 Thought: I now know the final answer
 Final Answer: the final answer to the original input question
-
-Begin!
-
-Question: {query}"""
+"""
 
 from pydantic import BaseModel
 def generate_tool_prompt(name_for_model: str, 
