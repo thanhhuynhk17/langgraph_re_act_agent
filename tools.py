@@ -56,7 +56,7 @@ def allowed_location_dir() -> str:
 
 class ListFilesInput(BaseModel):
     directory: str = Field(
-        default=None,
+        default=".",
         description="Directory path to list files from. Leave empty to use the default allowed path."
     )
     max_depth: int = Field(

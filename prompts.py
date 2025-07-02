@@ -1,3 +1,5 @@
+from react_constants import *
+
 PROMPT_REACT = """Answer the following questions as best you can. You have access to the following tools:
 
 {tool_descs}
@@ -6,16 +8,18 @@ Do not attempt to perform any task yourself.
 Always reason step by step and call tools explicitly where needed.
 
 Use the following format:
+{REACT_QUESTION}: The input question you must answer.
 
-Question: the input question you must answer
-Thought: you should always think about what to do
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-... (this Thought/Action/Action Input/Observation can be repeated zero or more times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question
-"""
+{REACT_THOUGHT}: You should always think about what to do.  
+{REACT_ACTION}: The action to take, should be one of [{tool_names}].  
+{REACT_ACTION_INPUT}: The input to the action. (expect JSON object with double quotes) 
+{REACT_OBSERVATION}: (will be inserted by the system — DO NOT GENERATE)  
+... (this {REACT_THOUGHT}/{REACT_ACTION}/{REACT_ACTION_INPUT}/{REACT_OBSERVATION} block can repeat zero or more times)
+
+{REACT_THOUGHT}: I now know the final answer.  
+{REACT_FINAL_ANSWER}: The final answer to the original input question.
+""".strip()
+
 
 from pydantic import BaseModel
 def generate_tool_prompt(name_for_model: str, 
@@ -47,46 +51,6 @@ def generate_tool_prompt(name_for_model: str,
     )
 
     return prompt
-
-
-from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
-from typing import List, Union
-import re
-
-def remove_think_tags(text: str) -> str:
-    """Remove <think>...</think> blocks from the text."""
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-
-def format_react_messages(messages: List[Union[HumanMessage, AIMessage, ToolMessage]]) -> str:
-    output_lines = []
-    current_tool_calls = []
-
-    for msg in messages:
-        if isinstance(msg, HumanMessage):
-            # output_lines.append(f"Question: {msg.content.strip()}")
-            continue
-
-        elif isinstance(msg, AIMessage):
-            # Remove <think> blocks
-            thought = remove_think_tags(msg.content)
-            if msg.tool_calls:
-                # AI is calling tools (Action phase)
-                current_tool_calls = msg.tool_calls
-                output_lines.append(f"Thought: {thought}")
-                for call in msg.tool_calls:
-                    action = call["name"]
-                    args = call["args"]
-                    output_lines.append(f"Action: {action}")
-                    output_lines.append(f"Action Input: {args}")
-            else:
-                output_lines.append(f"Thought: {thought}")
-                if "Final Answer:" not in thought:
-                    output_lines.append("Final Answer: (unknown)")
-
-        elif isinstance(msg, ToolMessage):
-            output_lines.append(f"Observation: {msg.content.strip()}")
-
-    return "\n".join(output_lines)
 
 
 # ---------------------------

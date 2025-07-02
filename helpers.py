@@ -1,8 +1,9 @@
 from typing import Tuple
+from react_constants import *
 def _detect_tool(text: str) -> Tuple[bool, str, str, str]:
-    special_thought_token = '\nThought:'
-    special_func_token = '\nAction:'
-    special_args_token = '\nAction Input:'
+    special_thought_token = f"{REACT_THOUGHT}:"
+    special_func_token = f"{REACT_ACTION}:"
+    special_args_token = f"{REACT_ACTION_INPUT}:"
 
     func_name, func_args, thought = None, None, None
 
@@ -36,6 +37,8 @@ import json
 import uuid
 from langchain_core.messages import AIMessage, HumanMessage
 from typing import Union
+from react_constants import *
+
 def process_ai_message(msg: AIMessage) -> Union[AIMessage, HumanMessage]:
     has_action, action, action_input, thought = _detect_tool(msg.content)
 
@@ -56,7 +59,7 @@ def process_ai_message(msg: AIMessage) -> Union[AIMessage, HumanMessage]:
             },
             "type": "function"
         }]
-        content = f"Thought: {thought}\nAction: {action}\nAction Input: {action_input}"
+        content = f"{REACT_THOUGHT}: {thought}\n{REACT_ACTION}: {action}\n{REACT_ACTION_INPUT}: {action_input}"
         additional_kwargs["tool_calls"] = tool_calls
     except json.JSONDecodeError as e:
         content = f"Invalid arguments with tool {action}:\n{action_input}\nException error message:{e}"
