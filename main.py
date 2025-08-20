@@ -18,31 +18,23 @@ from pydantic import BaseModel
 # print(module_path)
 # sys.path.append(str(module_path))
 from helpers import load_model, create_tool_args
+from tools import bag_of_words_generator
 # from langgraph_agents.agents.re_act_agent.utils.helpers import load_model  # ✅ Correct
 
 model = load_model(base_url="http://localhost:8000/v1")
-
-# Define embedding
-from langgraph.store.memory import InMemoryStore
-from langgraph.utils.config import get_store 
-
 namespace = ("agent_memories",)
-memory_tools = [
-    # create_manage_memory_tool(namespace),
-    # create_search_memory_tool(namespace, instructions="Find 5 relevant documents where any of the following administrative units are mentioned (province, ward, commune).")
-]
 
-# Tools
-client = MultiServerMCPClient({
-    "geoda": {
-        "url": "http://localhost:2025/mcp", 
-        "transport": "streamable_http"
-    },
-    "minio": {
-        "url": "http://localhost:8090/mcp", 
-        "transport": "streamable_http"
-    },
-})
+# # Tools
+# client = MultiServerMCPClient({
+#     "geoda": {
+#         "url": "http://localhost:2025/mcp", 
+#         "transport": "streamable_http"
+#     },
+#     "minio": {
+#         "url": "http://localhost:8090/mcp", 
+#         "transport": "streamable_http"
+#     },
+# })
 
 # from utils.memory_manager_agent import manager, namespace as manager_ns, reflection
 # from utils.memory_manager_agent import Episode
@@ -71,42 +63,23 @@ async def get_graph(*args):
         config["recursion_limit"] = 99
 
         checkpointer = config["configurable"]["__pregel_checkpointer"]
-        store = config["configurable"].get("__pregel_store", None)
-    # elif len(args) == 2:
-    #     print("checkpointer & store")
-    #     checkpointer, store = args
-    # else:
-    #     raise ValueError("get_graph() expects (config)")
-    if not checkpointer:
-        checkpointer = InMemorySaver()
-    try:
-        geoda_tools = await client.get_tools()
-        # print("geoda_tools", geoda_tools)
-    except httpx.ConnectError as e:
-        raise RuntimeError(f"❌ Cannot connect to MCP server. Connection failed.\n{str(e)}")
-    except httpx.HTTPStatusError as e:
-        raise RuntimeError(f"❌ MCP server returned HTTP error: {e.response.status_code} - {e.response.text}")
-    except httpx.RequestError as e:
-        raise RuntimeError(f"❌ Unexpected request error when connecting to MCP server: {str(e)}")
 
+    # if not checkpointer:
+    #     checkpointer = InMemorySaver()
+    # try:
+    #     geoda_tools = await client.get_tools()
+    #     # print("geoda_tools", geoda_tools)
+    # except httpx.ConnectError as e:
+    #     raise RuntimeError(f"❌ Cannot connect to MCP server. Connection failed.\n{str(e)}")
+    # except httpx.HTTPStatusError as e:
+    #     raise RuntimeError(f"❌ MCP server returned HTTP error: {e.response.status_code} - {e.response.text}")
+    # except httpx.RequestError as e:
+    #     raise RuntimeError(f"❌ Unexpected request error when connecting to MCP server: {str(e)}")
     
-    geoda_tools = [hybrid_search, store_doc_in_neo4j]
-    # ignored_tools = [
-    #     "ask_object", "download_object", "text_to_object", 
-    #     'get_bucket_lifecycle', 'get_bucket_replication', 'get_bucket_tags', 
-    #     'get_bucket_versioning', 'get_object_metadata', 'get_object_presigned_url',
-    #     'get_object_tags', 'get_object_versions', 'set_bucket_tags', 
-    #     'set_bucket_versioning', 'set_object_tags', 'upload_object'
-    #     ]
-    # geoda_tools = [t for t in geoda_tools if t.name not in ignored_tools]
-    
+    geoda_tools = [bag_of_words_generator]
     config = copilotkit_customize_config(config, emit_tool_calls=[ t.name for t in geoda_tools])
-    print(f"after config:\n{config}")
-    if not geoda_tools:
-        raise ValueError("No tools available from the MCP client.")
 
     GEODA_NAME = "GeoDaAgent"
-    SEARCH_NAME = "SearchAgent"
 
     async def use_geoda_prompt(state, config: RunnableConfig):
         """Prepare the messages for the LLM."""
@@ -117,17 +90,6 @@ async def get_graph(*args):
 
         if isinstance(tool_msg, ToolMessage):
             print(f"[tool_msg]:\n{tool_msg}\n=======")
-            # FIXME: dynamic condition
-            if tool_msg.name == "hybrid_search":
-                try:
-                    kwargs_str = tool_msg.content.split(f"{REACT_OBSERVATION}:")[1].strip()
-                    search_result_str = run_hybrid_search(**json.loads(kwargs_str))
-                    with open("prev_messages.md", "a", encoding="utf-8") as f:
-                        f.write(search_result_str)
-                    tool_msg.content = f"{REACT_OBSERVATION}: Truy vấn thông tin thành công. Thông tin nằm trong mục <retrieved_documents></retrieved_documents>.\nNếu không tìm thấy tài liệu liên quan, thử tăng số lượng tài liệu try vấn."
-
-                except Exception as e:
-                    print(f"[tool_msg] exception:{e}")
 
         # Geoda system prompt
         tool_descs = ""
@@ -141,62 +103,17 @@ async def get_graph(*args):
         prompt_react = PROMPT_REACT.format(
             tool_descs=tool_descs,
             tool_names=",".join([t.name for t in geoda_tools]),
-            REACT_QUESTION=REACT_QUESTION,
-            REACT_THOUGHT=REACT_THOUGHT,
-            REACT_ACTION = REACT_ACTION,
-            REACT_ACTION_INPUT = REACT_ACTION_INPUT,
-            REACT_OBSERVATION = REACT_OBSERVATION,
-            REACT_FINAL_ANSWER = REACT_FINAL_ANSWER
+            TAG_QUESTION=TAG_QUESTION,
+            TAG_THOUGHT=TAG_THOUGHT,
+            TAG_ACTION = TAG_ACTION,
+            TAG_ACTION_INPUT = TAG_ACTION_INPUT,
+            TAG_OBSERVATION = TAG_OBSERVATION,
+            TAG_FINAL_ANSWER = TAG_FINAL_ANSWER
         )
 
-#         system_msg = f"""
-# You are an agent specializing in geographic and spatial data analysis.
-
-# ## 📚 RETRIEVED DOCUMENTS INSTRUCTIONS:
-
-# You have access to user-relevant documents retrieved via hybrid search tools.
-
-# ### ✅ Your responsibilities:
-# - Extract **reliable geographic or spatial facts** from the documents.
-# - Ground all answers strictly in retrieved evidence — **do not assume or fabricate** any information.
-# - If the documents do **not contain sufficient information**, do **not guess**. Instead, **politely ask the user for more context** to continue.
-
-# ### 📄 RETRIEVED DOCUMENTS:
-# <retrieved_documents>
-# {search_result_str}
-# </retrieved_documents>
-
-# ---
-
-# ## ⚠️ CONSTRAINTS:
-# - 🗣️ **Final response to the user must be in Vietnamese.**
-# - ❌ **Do not invent, hallucinate, or speculate** outside the content of the retrieved documents.
-# - ✅ Use quotes, summaries, or references from the retrieved content to support your reasoning and conclusions.
-
-# ---
-
-# {prompt_react}
-# """.strip()
         system_msg = f"""{prompt_react}
-## RÀNG BUỘC:
-- **Phản hồi cuối cùng cho người dùng phải bằng tiếng Việt.**
-- **Không được bịa đặt hoặc suy đoán ngoài nội dung của tài liệu.**
-- **Phải sử dụng trích dẫn, tóm tắt hoặc tham chiếu rõ ràng từ nội dung được truy xuất để hỗ trợ lập luận và kết luận.**
-
-## HƯỚNG DẪN SỬ DỤNG TÀI LIỆU ĐÃ TRUY XUẤT:
-
-Bạn có quyền truy cập vào các tài liệu liên quan được truy xuất thông qua các công cụ tìm kiếm kết hợp.
-
-### Nhiệm vụ của bạn:
-- Trích xuất **thông tin đáng tin cậy** từ các tài liệu này.
-- Chỉ đưa ra câu trả lời dựa trên bằng chứng thu được — **không tự suy đoán hoặc bịa đặt** bất kỳ thông tin nào.
-- Nếu các tài liệu **không cung cấp đủ thông tin**, **không được đoán** mà hãy kết luận **không tìm thấy**.
-
-### TÀI LIỆU ĐÃ TRUY XUẤT:
-<retrieved_documents>
-{search_result_str}
-</retrieved_documents>
 """.strip()
+        print("system_msg", system_msg)
         return [SystemMessage(system_msg), *state["messages"]]
 
     def use_pre_hook(state, config: RunnableConfig):
@@ -205,15 +122,18 @@ Bạn có quyền truy cập vào các tài liệu liên quan được truy xu�
                 f.write(f"\n{msg.pretty_repr()}\n")
                 if isinstance(msg, ToolMessage):
                     f.write(f"\n{msg.model_dump_json()}\n")
-        language = state.get("language", "vietnamese")
-        print(f"language: {language}")
+
         last_msg = state["messages"][-1]
         artifact_json = None
         if isinstance(last_msg, ToolMessage):
-            state["messages"][-1].content = last_msg.content.strip() if \
-                REACT_OBSERVATION in last_msg.content else \
-                f"{REACT_OBSERVATION}: {last_msg.content}".strip()
-            
+            if f"<{TAG_OBSERVATION}>" in last_msg.content:
+                # Đã đúng format => giữ nguyên
+                state["messages"][-1].content = last_msg.content.strip()
+            else:
+                # Chưa có => bọc trong cặp thẻ
+                state["messages"][-1].content = f"""
+<{TAG_OBSERVATION}>{last_msg.content.strip()}</{TAG_OBSERVATION}>
+""".strip()
 
             if last_msg.artifact:
                 if isinstance(last_msg.artifact, BaseModel):
@@ -225,12 +145,21 @@ Bạn có quyền truy cập vào các tài liệu liên quan được truy xu�
                 artifact_json = json.dumps(artifact_dict, ensure_ascii=False)
 
         elif isinstance(last_msg, HumanMessage):
-            state["messages"][-1].content = last_msg.content.strip() if \
-                REACT_QUESTION in last_msg.content else \
-                f"{REACT_QUESTION}: {last_msg.content}".strip()
+            if f"<{TAG_QUESTION}>" in last_msg.content:
+                state["messages"][-1].content = last_msg.content.strip()
+            else:
+                state["messages"][-1].content = f"""
+<{TAG_QUESTION}>{last_msg.content.strip()}</{TAG_QUESTION}>
+""".strip()
 
+            # remove duplicate human message
+            if len(state["messages"]) > 1 and isinstance(state["messages"][-2], HumanMessage):
+                print("remove msg")
+                return {
+                    "json_data": artifact_json,
+                    "messages": [RemoveMessage(id=state["messages"][-2].id)],
+                }
         return {
-            "language": "vietnamese",
             "json_data": artifact_json
         }
 
@@ -252,7 +181,7 @@ Bạn có quyền truy cập vào các tài liệu liên quan được truy xu�
         # human-in-loop
         tool_calls = new_msg.additional_kwargs.get("tool_calls", None)
         print("tool_calls", tool_calls)
-        if tool_calls and tool_calls[0]["function"]["name"] in ["summary_file", "backward_eliminator", "robust_ols"]:
+        if tool_calls and tool_calls[0]["function"]["name"] in ["hybrid_search","summary_file", "backward_eliminator", "robust_ols"]:
         # if tool_calls and tool_calls[0]["function"]["name"] in []:
             print("---human_feedback---")
             feedback_args = interrupt({
@@ -267,7 +196,7 @@ Bạn có quyền truy cập vào các tài liệu liên quan được truy xu�
                 feedback_args
             )
             new_msg = AIMessage(
-                content=f"{new_msg.content}\nNgười dùng đã cập nhật lại tham số:\n{feedback_args.strip()}",
+                content=f"{new_msg.content.split(f'</{TAG_ACTION_INPUT}>')[0]}\nNgười dùng đã cập nhật lại tham số:\n{feedback_args.strip()}</{TAG_ACTION_INPUT}>",
                 additional_kwargs=additional_kwargs)
             print("after new_msg\n", new_msg)
         return {

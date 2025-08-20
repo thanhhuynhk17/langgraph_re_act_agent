@@ -1,9 +1,16 @@
-from langchain_core.messages import convert_to_messages
+from react_constants import *
+import re
+import json
+import uuid
+from typing import Tuple, List, Union
+from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from react_constants import *
 def load_model(base_url="http://localhost:8000/v1"):
-    # Define the model
+    """
+    Defines and returns the language model instance, updating the stop sequence
+    to use the new XML tag format for observations.
+    """
     model = ChatOpenAI(
         model="qwen3-30b-a3b",
         base_url=base_url,
@@ -11,50 +18,43 @@ def load_model(base_url="http://localhost:8000/v1"):
         temperature=0.6,
         top_p=0.95,
         extra_body={"top_k": 20, "min_p": 0.0},
-        stop_sequences=[REACT_OBSERVATION],
+        # IMPORTANT: Updated the stop sequence to the new opening tag format
+        stop_sequences=[f"<{TAG_OBSERVATION}"],
         streaming=True,
-
     )
-
     return model
 
 def get_detailed_instruct(task_description: str, query: str) -> str:
     return f'Instruct: {task_description}\nQuery:{query}'
 
-from typing import Tuple
-import re
-def _detect_tool(text: str) -> Tuple[bool, str, str, str]:
-    text = re.sub(r"^.*?</think>\n\n", "", text, flags=re.DOTALL)
-    
-    pattern = r"(\[react_\w+\])[:\s]*([\s\S]*?)(?=\[react_\w+\]?|\Z)"
+def _detect_tool(text: str) -> Tuple[bool, str, str, str, str]:
+    """
+    Detects and extracts tool calls from text formatted with XML-style tags.
+    """
+    # New regex to find <tag>content</tag> patterns
+    pattern = r"<({prefix}\w+)>([\s\S]*?)</\1>".format(prefix="react_")
     matches = re.findall(pattern, text, re.DOTALL)
 
     thought = None
     func_name = None
     func_args = None
     final_answer = None
-    for tag, content in matches:
+
+    for tag_name, content in matches:
         content = content.strip()
-        if tag == REACT_THOUGHT and not thought:
+        if tag_name == TAG_THOUGHT and not thought:
             thought = content
-        elif tag == REACT_ACTION and not func_name:
+        elif tag_name == TAG_ACTION and not func_name:
             func_name = content
-        elif tag == REACT_ACTION_INPUT and not func_args:
+        elif tag_name == TAG_ACTION_INPUT and not func_args:
             func_args = content
-        elif tag == REACT_FINAL_ANSWER and not final_answer:
+        elif tag_name == TAG_FINAL_ANSWER and not final_answer:
             final_answer = content
 
     return (func_name is not None), func_name, func_args, thought, final_answer
 
-
-import re
-import json
-import uuid
-from langchain_core.messages import AIMessage
-from typing import Union, List
-
 def create_tool_args(action, action_input):
-    additional_kwargs ={}
+    """Creates the dictionary for tool call arguments."""
     tool_call_id = uuid.uuid4().hex
     tool_calls = [{
         "index": 0,
@@ -65,56 +65,50 @@ def create_tool_args(action, action_input):
         },
         "type": "function"
     }]
-    additional_kwargs["tool_calls"] = tool_calls
-    return additional_kwargs
+    return {"tool_calls": tool_calls}
 
-def process_ai_message(msg: AIMessage, all_tools: List) -> AIMessage:
-
+def process_ai_message(msg: AIMessage, all_tools: List[str]) -> AIMessage:
+    """
+    Processes the AI message, parsing for the new XML-style tags and
+    formatting the output accordingly.
+    """
     tool_calls = msg.additional_kwargs.get("tool_calls", None)
     has_action, action, action_input, thought, final_answer = _detect_tool(msg.content)
+
     if has_action and action.lower() not in [t.lower() for t in all_tools]:
         has_action = False
 
-    if tool_calls and msg.content == "": # llm already has tool call & arguments, add content
+    if tool_calls and msg.content == "":  # LLM already has tool call & arguments
         tool_call = tool_calls[0]["function"]
-        # prepare for react agent context
-        has_action = True
         action = tool_call["name"]
         action_input = tool_call["arguments"]
-    elif not has_action: # do nothing, has no tool call
-        print(f'has no action:\n{thought}')
+        has_action = True
+    elif not has_action:
+        # If there's no action, format the response with the final answer tag.
         content = ''
         if thought:
-            content += f"{REACT_THOUGHT}: {thought}\n\n"
-        if final_answer:
-            content += f"{REACT_FINAL_ANSWER}: {final_answer}"
-            return AIMessage(content=content)
-        return AIMessage(content=f"{REACT_FINAL_ANSWER}: {msg.content.strip()}")
+            content += f"<{TAG_THOUGHT}>{thought}</{TAG_THOUGHT}>\n\n"
+        
+        response_content = final_answer if final_answer else msg.content.strip()
+        content += f"<{TAG_FINAL_ANSWER}>{response_content}</{TAG_FINAL_ANSWER}>"
+        return AIMessage(content=content)
 
-    # in case action found but has no input, by pass with empty dict
     if has_action and not action_input:
         action_input = "{}"
 
-    try: # parsing args
+    try:  # Ensure action_input is a valid JSON string
         action_input = json.dumps(json.loads(action_input), ensure_ascii=False)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         action_input = "{}"
 
-    content = f'{REACT_THOUGHT}: {thought if thought else f"Sử dụng tool {action}"}\n{REACT_ACTION}: {action}\n{REACT_ACTION_INPUT}: {action_input}'
-    # additional_kwargs ={}
-    # tool_call_id = uuid.uuid4().hex
-    # tool_calls = [{
-    #     "index": 0,
-    #     "id": tool_call_id,
-    #     "function": {
-    #         "name": action,
-    #         "arguments": action_input
-    #     },
-    #     "type": "function"
-    # }]
-    # additional_kwargs["tool_calls"] = tool_calls
+    # Build the response content using the new XML tag format
+    thought_text = thought if thought else f"Sử dụng tool {action}"
+    content = (
+        f"<{TAG_THOUGHT}>{thought_text}</{TAG_THOUGHT}>\n"
+        f"<{TAG_ACTION}>{action}</{TAG_ACTION}>\n"
+        f"<{TAG_ACTION_INPUT}>{action_input}</{TAG_ACTION_INPUT}>"
+    )
+
     additional_kwargs = create_tool_args(action, action_input)
 
-    return AIMessage(
-        content=content,
-        additional_kwargs=additional_kwargs)
+    return AIMessage(content=content, additional_kwargs=additional_kwargs)
