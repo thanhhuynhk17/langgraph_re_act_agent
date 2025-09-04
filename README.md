@@ -1,3 +1,8 @@
+# React Agent with Pre & Post Hooks
+
+This project demonstrates how to use **LangGraph** with a React-based agent, applying **`pre_hook`** and **`post_hook`** to modify the agent's behavior before and after each action. 
+
+![react_agent_mobile](https://github.com/user-attachments/assets/58c88fbc-8227-4f96-8182-f9043d25960f)
 
 To run in development mode, use:
 ```cli
@@ -34,13 +39,7 @@ LOG_LEVEL=INFO
 │       ├── react_constants.py
 │       ├── schemas.py
 │       └── tools.py
-
-# React Agent with Pre & Post Hooks (Vietnamese Adaptation)
-
-![react_agent_mobile](https://github.com/user-attachments/assets/58c88fbc-8227-4f96-8182-f9043d25960f)
-
-This project demonstrates how to use **LangGraph** with a React-based agent, applying **`pre_hook`** and **`post_hook`** to modify the agent's behavior before and after each action.  
-In this version, the agent is specifically designed for **Vietnamese natural language generation**, while keeping a strict, tag-based output format.
+ 
 ---
 
 ## 🔹 Hook Usage
