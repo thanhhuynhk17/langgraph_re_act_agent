@@ -3,7 +3,7 @@
     "dockerfile_lines": [],
     "dependencies": ["."],
     "graphs": {
-      "re_act_agent": "./main.py:get_graph"
+      "re_act_agent": "./src/agent.py:get_graph"
     },
     "env": ".env"
   }

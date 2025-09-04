@@ -3,13 +3,44 @@ To run in development mode, use:
 ```cli
 BG_JOB_ISOLATED_LOOPS=true langgraph dev --host 0.0.0.0
 ```
+
+```.env
+BG_JOB_ISOLATED_LOOPS=true
+OPENAI_BASE_URL=https://83d6e051b37d.ngrok-free.app/v1
+TAVILY_API_KEY=
+LOG_LEVEL=INFO
+
+```
+
+# Project Structure
+
+```
+.
+├── .env
+├── .env.example
+├── README.md
+├── langgraph.json
+├── src/
+│   ├── __init__.py
+│   ├── agent.py
+│   ├── logs/
+│   │   └── react.log
+│   └── utils/
+│       ├── __init__.py
+│       ├── helpers.py
+│       ├── interrupt_any_tool.py
+│       ├── logging_setup.py
+│       ├── prompts.py
+│       ├── react_constants.py
+│       ├── schemas.py
+│       └── tools.py
+
 # React Agent with Pre & Post Hooks (Vietnamese Adaptation)
 
 ![react_agent_mobile](https://github.com/user-attachments/assets/58c88fbc-8227-4f96-8182-f9043d25960f)
 
 This project demonstrates how to use **LangGraph** with a React-based agent, applying **`pre_hook`** and **`post_hook`** to modify the agent's behavior before and after each action.  
 In this version, the agent is specifically designed for **Vietnamese natural language generation**, while keeping a strict, tag-based output format.
-
 ---
 
 ## 🔹 Hook Usage
