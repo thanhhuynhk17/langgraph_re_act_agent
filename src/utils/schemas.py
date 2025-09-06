@@ -7,7 +7,7 @@ import json
 
 # FIXME: remove CopilotKitState
 class AgentState(CopilotKitState):
-    language: Literal["english", "vietnamese"] = "vietnamese"
+    language: Literal["english", "vietnamese"] = "vietnamese" # type: ignore
 
     is_last_step: IsLastStep
 

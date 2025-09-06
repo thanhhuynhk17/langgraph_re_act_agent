@@ -24,7 +24,7 @@ from src.utils.schemas import AgentState
 
 # FIXME: remove copilotkit_customize_config
 from copilotkit.langgraph import copilotkit_customize_config
-# from src.utils.tools import hybrid_search
+from src.utils.tools import hybrid_search
 from src.utils.tools import search_tool
 from src.utils.interrupt_any_tool import add_human_in_the_loop
 from src.utils.logging_setup import logger
@@ -47,7 +47,7 @@ async def get_graph(*args):
         checkpointer = InMemorySaver()
 
     # Tools
-    agent_tools = [add_human_in_the_loop(search_tool)]
+    agent_tools = [hybrid_search]
 
     config = copilotkit_customize_config(config, emit_tool_calls=[ t.name for t in agent_tools])
 
@@ -69,7 +69,7 @@ async def get_graph(*args):
                 name_for_model=t.name,
                 name_for_human=t.name,
                 description_for_model=t.description,
-                schema=t.args_schema
+                schema=t.args_schema if isinstance(t.args_schema, type) and issubclass(t.args_schema, BaseModel) else BaseModel
             )
         prompt_react = PROMPT_REACT.format(
             tool_descs=tool_descs,

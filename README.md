@@ -11,10 +11,13 @@ BG_JOB_ISOLATED_LOOPS=true langgraph dev --host 0.0.0.0
 
 ```.env
 BG_JOB_ISOLATED_LOOPS=true
-OPENAI_BASE_URL=https://83d6e051b37d.ngrok-free.app/v1
+OPENAI_BASE_URL=https://4922c9699b63.ngrok-free.app/v1
 TAVILY_API_KEY=
 LOG_LEVEL=INFO
 
+OPENAI_BASE_URL_EMBED=http://localhost:8080
+OPENAI_API_KEY_EMBED=avc
+OPENAI_API_MODEL_NAME_EMBED=qwen3-embed
 ```
 
 # Project Structure
