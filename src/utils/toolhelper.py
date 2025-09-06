@@ -7,9 +7,11 @@ import random
 import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
-import torch
-import torchaudio
-import torchvision
+# import torch
+# import torchaudio
+# import torchvision
+
+_MODEL = None
 
 def load_excel(path:str) -> pd.DataFrame:
     data = pd.read_csv(path)
@@ -213,63 +215,168 @@ prompts = [
 def get_random_prompt(product_name: str) -> str:
     return random.choice(prompts).format(product_name=product_name)
 
-# --------------------------
-# Stub search (replace later)
-# --------------------------
-def run_hybrid_search(prompt: str, k: int):
+
+def run_load_data_to_embedding(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    return convert_table_to_rows(df)
+
+def run_normalization_data(sequences: list):
+    sequences = [remove_stopwords_vi(sequence) for sequence in sequences]
+    sequences = [clean_text(sequence) for sequence in sequences]
+    sequences = [normalize_record(sequence, fix_inch_heu=False) for sequence in sequences]
+    return sequences
+
+def get_or_load_model(device: str = "cuda:0") -> SentenceTransformer:
+    """Load SentenceTransformer once and cache globally."""
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = SentenceTransformer(
+            "Qwen/Qwen3-Embedding-0.6B",
+            device=device,
+            # model_kwargs={"attn_implementation": "flash_attention_2", "device_map": "auto"},
+        )
+    return _MODEL
+
+def run_encode_data_embedding(
+    model: SentenceTransformer = None,
+    sequences: list = None,
+    embeddings=None,
+):
+    """
+    Encode dữ liệu thành embeddings.
+    Nếu model chưa được khởi tạo thì sẽ khởi tạo Qwen3-Embedding-0.6B.
+    """
+    if model is None:
+        model = get_or_load_model()
+
+    if embeddings is None and sequences is not None:
+        embeddings = model.encode(sequences, convert_to_tensor=True)
+
+    return model, embeddings
+
+
+def run_hybrid_search(model: SentenceTransformer, prompt: str, doc_embeddings, k: int):
     """
     Trả về list top-k kết quả (dict với _id).
-    Bạn sẽ thay bằng search thực tế.
     """
-    df = load_excel('src\hoanghamobile.csv')
-    result_list = convert_table_to_rows(df)
-    # print(2)
-    # print(np.array(result_list))
-    result_list = [remove_stopwords_vi(sequence) for sequence in result_list]
-    result_list = [clean_text(sequence) for sequence in result_list]
-    result_list = [normalize_record(sequence, fix_inch_heu=False) for sequence in result_list]
+    path = "src/hoanghamobile.csv"
+    result_list = run_load_data_to_embedding(path)
+    result_list = run_normalization_data(result_list)
 
-    model = SentenceTransformer(
-        "Qwen/Qwen3-Embedding-0.6B",
-        device="cuda:0",
-        # model_kwargs={"attn_implementation": "flash_attention_2", "device_map": "auto"},
-    )
+    print("LOADED MODEL QWEN")
 
-#     # MODELS EMBEDDING 1
-    document_embeddings = model.encode(result_list)
-
-    # MODELS EMBEDDING 2
+    # BM25
     tokenized_corpus = [doc.split(" ") for doc in result_list]
     bm25 = BM25Okapi(tokenized_corpus)
-    print('LOADED MODEL')
+    print("LOADED MODEL BM25")
+
     query_embeddings = model.encode([prompt], prompt_name="query")
-    print('LOADED MODEL')
+
+    similarity = model.similarity(query_embeddings, doc_embeddings)
+    top_similarity_idx = np.argsort(-similarity.numpy().ravel())
+    top_similarity_id_products = [
+        [f"{int(similarity[0][idx] * 100)}%", idx] for idx in top_similarity_idx
+    ]
 
     if k > 5 and k % 2 == 0:
-        # Compute the (cosine) similarity between the query and document embeddings
-        similarity = model.similarity(query_embeddings, document_embeddings)
-        top_similarity_idx = np.argsort(-similarity.numpy().ravel())
-        top_similarity_id_products = [[f"{int(similarity[0][idx]*100)}%", df.values[idx][0]] for idx in top_similarity_idx]
-        
         tokenized_query = prompt.split(" ")
         result_k = list(bm25.get_top_n(tokenized_query, result_list, n=k))
-    
-        result_bm25 = [result_k[idx].split()[0] for idx in range(k//2)]
-        result_qwen = [np.array(top_similarity_id_products)[_,1] for _ in range(k//2)]
-        
-        result_combined = [{"_id": np.array(top_similarity_id_products)[_,1], "_score": np.array(top_similarity_id_products)[_,0], '_content': result_list[top_similarity_idx[_]] } for _ in range(k)]
-        # print(result_combined)
-        # result_combined = [{"_id": np.array(result_combined)[_,1], "_score": np.array(top_similarity_id_products)[_,0]} for _ in range(k)]
-        
+
+        result_combined = [
+            {
+                "_id": top_similarity_id_products[i][1],
+                "_score": top_similarity_id_products[i][0],
+                "_content": result_list[top_similarity_idx[i]],
+            }
+            for i in range(k)
+        ]
     else:
-        similarity = model.similarity(query_embeddings, document_embeddings)
-        top_similarity_idx = np.argsort(-similarity.numpy().ravel())
-        top_similarity_id_products = [[f"{int(similarity[0][idx]*100)}%", df.values[idx][0]] for idx in top_similarity_idx]
-        
-        result_qwen = [{"_id": np.array(top_similarity_id_products)[_,1], "_score": np.array(top_similarity_id_products)[_,0], '_content': result_list[top_similarity_idx[_]]} for _ in range(k)]
-        result_combined = result_qwen
-    
+        result_combined = [
+            {
+                "_id": top_similarity_id_products[i][1],
+                "_score": top_similarity_id_products[i][0],
+                "_content": result_list[top_similarity_idx[i]],
+            }
+            for i in range(k)
+        ]
+
     return result_combined
+
+# def run_encode_data_embedding(
+#         model: SentenceTransformer = None, 
+#         sequences: list = None, 
+#         embeddings = None
+#     ):
+#     """
+#     Encode dữ liệu thành embeddings. 
+#     Nếu model chưa được khởi tạo thì sẽ khởi tạo Qwen3-Embedding-0.6B.
+    
+#     Args:
+#         model (SentenceTransformer, optional): model đã được khởi tạo sẵn (nếu có).
+#         sequences (list): danh sách các câu/văn bản cần embedding.
+    
+#     Returns:
+#         model (SentenceTransformer): model đã khởi tạo hoặc tái sử dụng.
+#         embeddings (list): danh sách embedding vectors.
+#     """
+    
+#     # Nếu chưa có model thì khởi tạo
+#     model = SentenceTransformer(
+#         "Qwen/Qwen3-Embedding-0.6B",
+#         device="cuda:0",
+#         # model_kwargs={"attn_implementation": "flash_attention_2", "device_map": "auto"},
+#     )
+    
+#     # Nếu chưa có embeddings thì mới encode
+#     if embeddings is None and sequences is not None:
+#         embeddings = model.encode(sequences, convert_to_tensor=True)
+    
+#     return model, embeddings
+
+# def run_hybrid_search(model: SentenceTransformer, prompt: str, doc_embeddings, k: int):
+#     """
+#     Trả về list top-k kết quả (dict với _id).
+#     Bạn sẽ thay bằng search thực tế.
+#     """
+#     path = 'src\hoanghamobile.csv'
+#     result_list = run_load_data_to_embedding(path=path)
+
+#     result_list = run_normalization_data(result_list)
+    
+#     document_embeddings = doc_embeddings
+
+#     print('LOADED MODEL QWEN')
+
+#     # MODELS EMBEDDING 2
+#     tokenized_corpus = [doc.split(" ") for doc in result_list]
+#     bm25 = BM25Okapi(tokenized_corpus)
+#     print('LOADED MODEL BM25')
+    
+#     query_embeddings = model.encode([prompt], prompt_name="query")
+
+#     if k > 5 and k % 2 == 0:
+        
+#         similarity = model.similarity(query_embeddings, document_embeddings)
+#         top_similarity_idx = np.argsort(-similarity.numpy().ravel())
+#         top_similarity_id_products = [[f"{int(similarity[0][idx]*100)}%", df.values[idx][0]] for idx in top_similarity_idx]
+        
+#         tokenized_query = prompt.split(" ")
+#         result_k = list(bm25.get_top_n(tokenized_query, result_list, n=k))
+    
+#         result_bm25 = [result_k[idx].split()[0] for idx in range(k//2)]
+#         result_qwen = [np.array(top_similarity_id_products)[_,1] for _ in range(k//2)]
+        
+#         result_combined = [{"_id": np.array(top_similarity_id_products)[_,1], "_score": np.array(top_similarity_id_products)[_,0], '_content': result_list[top_similarity_idx[_]] } for _ in range(k)]
+        
+#     else:
+#         similarity = model.similarity(query_embeddings, document_embeddings)
+#         top_similarity_idx = np.argsort(-similarity.numpy().ravel())
+#         top_similarity_id_products = [[f"{int(similarity[0][idx]*100)}%", df.values[idx][0]] for idx in top_similarity_idx]
+        
+#         result_qwen = [{"_id": np.array(top_similarity_id_products)[_,1], "_score": np.array(top_similarity_id_products)[_,0], '_content': result_list[top_similarity_idx[_]]} for _ in range(k)]
+#         result_combined = result_qwen
+    
+#     return result_combined
     
 
 # # --------------------------

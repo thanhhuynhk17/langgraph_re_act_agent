@@ -28,10 +28,10 @@ from src.utils.tools import hybrid_search
 from src.utils.tools import search_tool
 from src.utils.interrupt_any_tool import add_human_in_the_loop
 from src.utils.logging_setup import logger
-
 import json
 
 async def get_graph(*args):
+    
     # TODO: config namespace by user's id
     namespace = ("agent_memories",)
 
