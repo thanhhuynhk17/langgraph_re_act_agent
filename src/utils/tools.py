@@ -3,86 +3,149 @@ from typing import Literal, Optional, List
 from langchain.tools import tool
 from src.utils.schemas import HybridSearchInput
 from src.utils.toolhelper import run_hybrid_search, run_load_data_to_embedding, run_normalization_data
-from sentence_transformers import SentenceTransformer
-from dotenv import load_dotenv
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import SQLiteVec
 from langchain_tavily import TavilySearch
+from dotenv import load_dotenv
 
 load_dotenv()
 
 search_tool = TavilySearch()
 
-# module-level cache
-_MODEL: Optional[SentenceTransformer] = None
+# -------------------------
+# Module-level cache
+# -------------------------
+_MODEL: HuggingFaceEmbeddings
 _DOC_EMBEDDINGS = None
-_SEQUENCES: Optional[List[str]] = None
+_SEQUENCES: list[str] = list()
+_STORE: SQLiteVec
+# -------------------------
+# Model Embeddings
+# -------------------------
 
-
-def get_model(device: str = "cuda:0") -> SentenceTransformer:
-    """Khởi tạo model 1 lần và cache vào _MODEL."""
-    global _MODEL
-    if _MODEL is None:
-        _MODEL = SentenceTransformer(
-            "Qwen/Qwen3-Embedding-0.6B",
-            device=device,
-            # model_kwargs={"attn_implementation": "flash_attention_2", "device_map": "auto"},
-        )
-    return _MODEL
-
-
-def prepare_embeddings(sequences: List[str], device: str = "cuda:0"):
-    """
-    Tạo embeddings cho sequences và cache chúng.
-    Gọi lần đầu tiên với danh sách documents (sequences). Lần sau sẽ dùng cache.
-    """
+def prepare_embeddings(sequences: list[str], device: str = "cuda:0"):
+    """Encode sequences and cache embeddings."""
     global _DOC_EMBEDDINGS, _SEQUENCES
-
-    if _DOC_EMBEDDINGS is None:
-        model_instance = get_model(device)
-        _DOC_EMBEDDINGS = model_instance.encode(sequences)
+    _MODEL = get_model_qwen()
+    if _DOC_EMBEDDINGS is None or _SEQUENCES != sequences:
+        _DOC_EMBEDDINGS = _MODEL.embed_documents(sequences)
         _SEQUENCES = sequences
+        
+    
+
     return _DOC_EMBEDDINGS
 
+# -------------------------
+# Vector Store (thread-safe, persistent)
+# -------------------------
+def get_vector_store(
+    table_name: str = "state_union",
+    db_file: str = "../vec.db",
+    sequences = list(),
+    device: str = "cuda:0"
+) -> SQLiteVec:
+    """Create a thread-safe SQLiteVec vector store. Add embeddings in chunks if DB is empty."""
+    
+    connection = SQLiteVec.create_connection(db_file=db_file)
 
+    _STORE = SQLiteVec(
+        table=table_name,
+        db_file=db_file,
+        embedding=get_model_qwen(),
+        connection=connection
+    )
+    
+    if not os.path.exists(db_file):
+        _STORE.add_documents(sequences)
+
+    return _STORE
+
+def get_model_qwen() -> HuggingFaceEmbeddings:
+    # Load model embedding (phải giống model lúc insert để đảm bảo tương thích vector dim)
+    model_name = "Qwen/Qwen3-Embedding-0.6B"
+    embeddings = HuggingFaceEmbeddings(
+                    model_name=model_name,
+                    model_kwargs = {'device': 'cpu'}
+                )
+    return embeddings
+
+
+
+
+from langchain.schema import Document
+# -------------------------
+# Hybrid Search Tool
+# -------------------------
 @tool("hybrid_search", args_schema=HybridSearchInput)
 def hybrid_search(
     query: str,
-    k: Literal[10, 20] = 10,
-    sequences: Optional[List[str]] = None,
+    k: Literal[5, 10, 20] = 5,
+    sequences:list[str] = list(),
     doc_embeddings=None,
-) -> str:
-    """
-    Hybrid search tool:
-    - Tự động load dữ liệu nếu chưa có embeddings.
-    - Nếu đã có embeddings trong cache thì không encode lại.
-    - Có thể override bằng cách truyền `doc_embeddings` từ ngoài.
-    """
+    use_vector_store: bool = True,
+    device: str = "cuda:0",
+    ) -> str:
+    
     global _DOC_EMBEDDINGS, _SEQUENCES
 
-    model_instance = get_model()
+    
+    
+    # Nếu DB chưa tồn tại, thêm documents
+    if not os.path.exists('../vec.db') and sequences:
+        
+        path_csv = "src/hoanghamobile.csv"
+        path_stopwords = "src/stopwords-vietnamese.txt"
+        
+        if not os.path.exists(path_csv):
+            raise FileNotFoundError(f"Data CSV file not found: {path_csv}")
+        if not os.path.exists(path_stopwords):
+            raise FileNotFoundError(f"Stopwords file not found: {path_stopwords}")
 
-    # --- ưu tiên doc_embeddings được truyền vào ---
-    if doc_embeddings is not None:
-        emb = doc_embeddings
+        sequences = run_load_data_to_embedding(path_csv)
+        sequences = run_normalization_data(sequences, path_stopwords=path_stopwords)
+        
+        db_file = '../vec.db'
+        connection = SQLiteVec.create_connection(db_file=db_file)
+        
+        _STORE = SQLiteVec(
+            table= "state_union",
+            db_file=db_file,
+            embedding=get_model_qwen(),
+            connection=connection
+        )
+        
+        docs = [Document(page_content=s) for s in sequences]  # Chuyển str -> Document
+        _STORE.add_documents(docs)
+        
     else:
-        if _DOC_EMBEDDINGS is None:
-            # nếu chưa có embeddings thì load dữ liệu mặc định
-            if sequences is None:
-                path = "src/hoanghamobile.csv"
-                sequences = run_load_data_to_embedding(path)
-                sequences = run_normalization_data(sequences)
+        _MODEL = get_model_qwen()
+        db_file = '../vec.db'
+        
+        connection = SQLiteVec.create_connection(db_file=db_file)
+        
+        _STORE = SQLiteVec(
+            table= "state_union",
+            db_file=db_file,
+            embedding=_MODEL,
+            connection=connection
+        )
+    
+    # # --- Prepare embeddings ---
+    # valid_sequences = sequences if isinstance(sequences, list) and all(isinstance(s, str) for s in sequences) else []
+    # emb = doc_embeddings if doc_embeddings is not None else prepare_embeddings(valid_sequences, device=device)
 
-            emb = prepare_embeddings(sequences)
-        else:
-            emb = _DOC_EMBEDDINGS
+    # # --- BM25 + embeddings search ---
+    # bm25_results = run_hybrid_search(_MODEL, query, emb, k)
 
-    # --- Nếu sequences không truyền vào thì fallback dùng cache ---
-    docs = sequences or _SEQUENCES
-    if docs is None:
-        raise ValueError("No documents available for search. Could not build embeddings.")
+    # --- Vector store retrieval ---
+    vector_results = []
+    if use_vector_store:
+        vector_store = get_vector_store(sequences=sequences, device=device)
+        retriever = vector_store.as_retriever(search_kwargs={"k": k})
+        vector_docs = retriever.invoke(query)
+        vector_results = [doc.page_content for doc in vector_docs]
 
-    # Thực hiện hybrid search
-    result = run_hybrid_search(model_instance, query, emb, k)
+    # --- Combine results ---
+    combined_results = [{"_id": f"{i+1}", "_content": v} for i, v in enumerate(vector_results)]
 
-    return "\n".join(
-        [f"{id_result.get('_id', 'N/A')} - {id_result.get('_content', '')}" for id_result in result]
-    )
+    return "\n".join([f"{r.get('_id', 'N/A')} - {r.get('_content', '')}" for r in combined_results])

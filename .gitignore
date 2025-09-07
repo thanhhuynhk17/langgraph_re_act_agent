@@ -86,3 +86,4 @@ docs/_build/
 *.sublime-project
 *.sublime-workspace
 
+/data
