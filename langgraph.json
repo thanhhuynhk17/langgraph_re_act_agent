@@ -1,10 +1,12 @@
 {
     "python_version": "3.12",
     "dockerfile_lines": [],
-    "dependencies": ["."],
+    "dependencies": [
+      "./requirements.txt"
+    ],
     "graphs": {
       "re_act_agent": "./src/agent.py:get_graph"
     },
     "env": ".env"
-  }
+}
   

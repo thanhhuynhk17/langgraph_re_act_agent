@@ -3,7 +3,6 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command, interrupt
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.message import REMOVE_ALL_MESSAGES, RemoveMessage
@@ -12,43 +11,31 @@ from pydantic import BaseModel
 
 from src.utils.helpers import load_model, create_tool_args
 
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://localhost:8000/v1")
-model = load_model(base_url=OPENAI_BASE_URL)
+OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", None)
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
+model = load_model(
+    model_name=OPENAI_MODEL_NAME,
+    base_url=OPENAI_BASE_URL,
+    api_key=OPENAI_API_KEY
+)
 
 import httpx
 from src.utils.prompts import generate_tool_prompt, PROMPT_REACT
 from src.utils.react_constants import *
 from src.utils.helpers import process_ai_message
-# custom state for communicate with UI
-from src.utils.schemas import AgentState
 
-# FIXME: remove copilotkit_customize_config
-from copilotkit.langgraph import copilotkit_customize_config
-from src.utils.tools import search_tool
+from src.utils.tools import all_agent_tools
 from src.utils.interrupt_any_tool import add_human_in_the_loop
 from src.utils.logging_setup import logger
 
 import json
 
 async def get_graph(*args):
-    # TODO: config namespace by user's id
-    namespace = ("agent_memories",)
-
-    # Determine argument pattern
-    if len(args) == 1:
-        config = args[0]
-        print(type(config))
-        config["recursion_limit"] = 99
-
-        checkpointer = config["configurable"]["__pregel_checkpointer"]
-
-    if not checkpointer:
-        checkpointer = InMemorySaver()
+    # checkpointer = InMemorySaver()
 
     # Tools
-    agent_tools = [add_human_in_the_loop(search_tool)]
-
-    config = copilotkit_customize_config(config, emit_tool_calls=[ t.name for t in agent_tools])
+    agent_tools = agent_tools
 
     AGENT_NAME = "GeoDaAgent"
 
@@ -83,10 +70,11 @@ async def get_graph(*args):
 
         system_msg = f"""{prompt_react}
 """.strip()
-        print("system_msg", system_msg)
+        # print("system_msg", system_msg)
         return [SystemMessage(system_msg), *state["messages"]]
 
     def use_pre_hook(state, config: RunnableConfig):
+        print("agent_tools", agent_tools)
         last_msg = state["messages"][-1]
         artifact_json = None
         if isinstance(last_msg, ToolMessage):
@@ -133,61 +121,22 @@ async def get_graph(*args):
         if not isinstance(last_msg, AIMessage):
             return # do nothing
         print("Post hooked: check action.")
-        all_tools = config["metadata"]["copilotkit:emit-tool-calls"]
+        all_tools = [t.name for t in agent_tools]
         new_msg = process_ai_message(last_msg, all_tools)
-        # if not new_msg: # has no new message, do nothing!
-        #     return
 
-        # # human-in-loop
-        # tool_calls = new_msg.additional_kwargs.get("tool_calls", None)
-        # print("tool_calls", tool_calls)
-        # if tool_calls and tool_calls[0]["function"]["name"] in ["hybrid_search","summary_file", "backward_eliminator", "robust_ols"]:
-        # # if tool_calls and tool_calls[0]["function"]["name"] in []:
-        #     print("---human_feedback---")
-        #     feedback_args = interrupt({
-        #         "name": tool_calls[0]["function"]["name"],
-        #         "type": "ask",
-        #         "content": f'{tool_calls[0]["function"]["arguments"]}'
-        #     })
-        #     print("before new_msg\n", new_msg)
-        #     print("feedback", feedback_args)
-        #     additional_kwargs = create_tool_args(
-        #         tool_calls[0]["function"]["name"],
-        #         feedback_args
-        #     )
-        #     new_msg = AIMessage(
-        #         content=f"{new_msg.content.split(f'</{TAG_ACTION_INPUT}>')[0]}\nNgười dùng đã cập nhật lại tham số:\n{feedback_args.strip()}</{TAG_ACTION_INPUT}>",
-        #         additional_kwargs=additional_kwargs)
-        #     print("after new_msg\n", new_msg)
         return {
             **state,
             "messages": [RemoveMessage(id=last_msg.id), new_msg],
         }
 
-    try:
-        geoda_agent = create_react_agent(
-                        model,
-                        name=AGENT_NAME,
-                        tools=agent_tools,
-                        pre_model_hook=use_pre_hook,
-                        post_model_hook=use_post_hook,
-                        prompt=use_geoda_prompt,
-                        state_schema=AgentState,
-                        checkpointer=checkpointer,
-                        debug=True
-                    )
+    geoda_agent = create_react_agent(
+                    model,
+                    name=AGENT_NAME,
+                    tools=agent_tools,
+                    pre_model_hook=use_pre_hook,
+                    post_model_hook=use_post_hook,
+                    prompt=use_geoda_prompt,
+                    debug=False
+                )
 
-    except Exception as e:
-        print("Assign checkpointer & store failed:\n{e}")
-        geoda_agent = create_react_agent(
-                        model,
-                        name=AGENT_NAME,
-                        tools=agent_tools,
-                        pre_model_hook=use_pre_hook,
-                        post_model_hook=use_post_hook,
-                        prompt=use_geoda_prompt,
-                        state_schema=AgentState,
-                        debug=True
-                    )
-    
     return geoda_agent

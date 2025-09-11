@@ -6,18 +6,21 @@ from typing import Tuple, List, Union
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-def load_model(base_url="http://localhost:8000/v1"):
+def load_model(
+    model_name="qwen3-30b-a3b",
+    base_url="http://localhost:8000/v1",
+    api_key="dummy_text"):
     """
     Defines and returns the language model instance, updating the stop sequence
     to use the new XML tag format for observations.
     """
     model = ChatOpenAI(
-        model="qwen3-30b-a3b",
+        model=model_name,
         base_url=base_url,
-        api_key="dummy_key",
-        temperature=0.6,
-        top_p=0.95,
-        extra_body={"top_k": 20, "min_p": 0.0},
+        api_key=api_key,
+        # temperature=0.6,
+        # top_p=0.95,
+        # extra_body={"top_k": 20, "min_p": 0.0},
         # IMPORTANT: Updated the stop sequence to the new opening tag format
         stop_sequences=[f"<{TAG_OBSERVATION}"],
         streaming=True,
