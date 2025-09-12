@@ -30,8 +30,8 @@ class HybridSearchInput(BaseModel):
         ...,
         description="The search query text. Can be natural language or keywords."
     )
-    k: Literal[10, 20] = Field(
+    k: Literal[5, 10, 20] = Field(
         10,
-        description="The number of top results to return. Must be either 10 or 20."
+        description="The number of top results to return. Must be either 5, 10 or 20."
     )
 

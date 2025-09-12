@@ -16,7 +16,7 @@ TAVILY_API_KEY=
 LOG_LEVEL=INFO
 
 OPENAI_BASE_URL_EMBED=http://localhost:8080
-OPENAI_API_KEY_EMBED=avc
+OPENAI_API_KEY_EMBED=<your-api-key>
 OPENAI_API_MODEL_NAME_EMBED=qwen3-embed
 ```
 
@@ -99,4 +99,18 @@ I now know the final answer.
 <react_final_answer>
 The final answer to the user’s question (MUST be written in Vietnamese).
 </react_final_answer>
+```
+
+
+# requirements.txt
+
+```bash
+pip install -r requirements.txt
+```
+
+restart
+
+```bash
+pip uninstall torch torchvision torchaudio -y
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```

@@ -8,7 +8,7 @@ services:
     volumes:
       - ./data:/data
       # - ./Qwen3-Embedding-0.6B:/data/Qwen3-Embedding-0.6B
-    command: --pooling last-token --max-batch-tokens 65536
+    command: --pooling last-token --max-batch-tokens 102400
     deploy:
       resources:
         reservations:

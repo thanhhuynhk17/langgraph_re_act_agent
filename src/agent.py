@@ -175,7 +175,7 @@ async def get_graph(*args):
                         prompt=use_geoda_prompt,
                         state_schema=AgentState,
                         checkpointer=checkpointer,
-                        debug=True
+                        debug=False
                     )
 
     except Exception as e:
@@ -188,7 +188,7 @@ async def get_graph(*args):
                         post_model_hook=use_post_hook,
                         prompt=use_geoda_prompt,
                         state_schema=AgentState,
-                        debug=True
+                        debug=False
                     )
     
     return geoda_agent

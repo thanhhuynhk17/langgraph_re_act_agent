@@ -8,14 +8,77 @@ from rank_bm25 import BM25Okapi
 from typing import Optional
 from langchain_community.vectorstores import SQLiteVec
 from langchain_community.embeddings import HuggingFaceEmbeddings
+import os
+from typing import Literal, Optional, List
+from langchain_community.vectorstores import SQLiteVec
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface.embeddings import HuggingFaceEndpointEmbeddings
+from langchain.schema import Document
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.docstore.in_memory import InMemoryDocstore
+import faiss
+from langchain_community.vectorstores import FAISS
+from uuid import uuid4
+import os
+from typing import Literal, Optional, List
+from langchain_community.vectorstores import SQLiteVec
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface.embeddings import HuggingFaceEndpointEmbeddings
+from langchain.schema import Document
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.docstore.in_memory import InMemoryDocstore
+import faiss
+from langchain_community.vectorstores import FAISS
+from uuid import uuid4
+from dotenv import load_dotenv
 
-_MODEL: Optional[HuggingFaceEmbeddings] = None
-_DOC_EMBEDDINGS = None
-_SEQUENCES: Optional[list] = None
+load_dotenv()
+
+import unicodedata
+# VietnameseToneNormalization.md
+# https://github.com/VinAIResearch/BARTpho/blob/main/VietnameseToneNormalization.md
+
+TONE_NORM_VI = {
+    'òa': 'oà', 'Òa': 'Oà', 'ÒA': 'OÀ',\
+    'óa': 'oá', 'Óa': 'Oá', 'ÓA': 'OÁ',\
+    'ỏa': 'oả', 'Ỏa': 'Oả', 'ỎA': 'OẢ',\
+    'õa': 'oã', 'Õa': 'Oã', 'ÕA': 'OÃ',\
+    'ọa': 'oạ', 'Ọa': 'Oạ', 'ỌA': 'OẠ',\
+    'òe': 'oè', 'Òe': 'Oè', 'ÒE': 'OÈ',\
+    'óe': 'oé', 'Óe': 'Oé', 'ÓE': 'OÉ',\
+    'ỏe': 'oẻ', 'Ỏe': 'Oẻ', 'ỎE': 'OẺ',\
+    'õe': 'oẽ', 'Õe': 'Oẽ', 'ÕE': 'OẼ',\
+    'ọe': 'oẹ', 'Ọe': 'Oẹ', 'ỌE': 'OẸ',\
+    'ùy': 'uỳ', 'Ùy': 'Uỳ', 'ÙY': 'UỲ',\
+    'úy': 'uý', 'Úy': 'Uý', 'ÚY': 'UÝ',\
+    'ủy': 'uỷ', 'Ủy': 'Uỷ', 'ỦY': 'UỶ',\
+    'ũy': 'uỹ', 'Ũy': 'Uỹ', 'ŨY': 'UỸ',\
+    'ụy': 'uỵ', 'Ụy': 'Uỵ', 'ỤY': 'UỴ'
+    }
+
+def normalize_vnese(text):
+    for i, j in TONE_NORM_VI.items():
+        text = text.replace(i, j)
+    # Normalize input text to NFC
+    text = unicodedata.normalize("NFC", text)
+    # normalize spacing
+    text = text.replace('\xa0', ' ')
+    return text
 
 # -------------------------
 # Load CSV
 # -------------------------
+def add_column_names_to_values(df : pd.DataFrame) -> pd.DataFrame:
+    # Đọc file csv
+    
+    # Áp dụng cho từng hàng
+    def row_with_keys(row):
+        return {col: f"{col}: {row[col]}" for col in df.columns}
+    
+    # Tạo DataFrame mới với giá trị đã thêm tên cột
+    new_df = df.apply(row_with_keys, axis=1, result_type="expand")
+    return new_df
+
 def load_excel(path: str) -> pd.DataFrame:
     if not os.path.exists(path):
         raise FileNotFoundError(f"CSV file not found: {path}")
@@ -28,7 +91,11 @@ def load_excel(path: str) -> pd.DataFrame:
         .replace("", np.nan)
     )
     df["current_price"] = df["current_price"].astype(float).dropna().astype("Int64").astype(str) + " vnd"
+    
+    # df = add_column_names_to_values(df)
+    
     return df
+
 
 def convert_table_to_rows(df: pd.DataFrame) -> list:
     result_list = []
@@ -57,7 +124,7 @@ def clean_text(text: str) -> str:
     if not text:
         return text
     text = re.sub(r'<.*?>', ' ', text)
-    text = text.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ').replace('_', ' ')
+    text = text.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
     tokens = text.split(',')
     cleaned_tokens = tokens[:3] + [re.sub(r'[^0-9a-zA-ZÀ-Ỹà-ỹ\s]', '', t) for t in tokens[3:]]
     return ','.join(cleaned_tokens)
@@ -65,7 +132,7 @@ def clean_text(text: str) -> str:
 def normalize_record(text: str, fix_inch_heu=False) -> str:
     if not text:
         return text
-    text = re.sub(r'<.*?>', ' ', text).replace('\r', ' ').replace('\n', ' ').replace('\t', ' ').replace('_', ' ')
+    text = re.sub(r'<.*?>', ' ', text).replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
     text = re.sub(r'\b[nN][aA][nN]\b', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
@@ -75,63 +142,86 @@ def run_load_data_to_embedding(path: str) -> list:
     return convert_table_to_rows(df)
 
 def run_normalization_data(sequences: list, path_stopwords: str="src/stopwords-vietnamese.txt") -> list:
-    sequences = [remove_stopwords_vi(seq, path_stopwords) for seq in sequences]
-    sequences = [clean_text(seq) for seq in sequences]
-    sequences = [normalize_record(seq) for seq in sequences]
+    
+    # sequences = [remove_stopwords_vi(seq, path_stopwords) for seq in sequences]
+    # sequences = [clean_text(seq) for seq in sequences]
+    sequences = [str(normalize_record(seq)).lower() for seq in sequences]
+    sequences = [normalize_vnese(seq) for seq in sequences]
     return sequences
 
-# -------------------------
-# Embeddings
-# -------------------------
-def get_model_qwen(device: str = "cuda:0") -> HuggingFaceEmbeddings:
-    global _MODEL
-    if _MODEL is None:
-        _MODEL = HuggingFaceEmbeddings(
-            model_name="Qwen/Qwen3-Embedding-0.6B",
-            model_kwargs={"device": device},
-        )
-    return _MODEL
+def get_model_qwen(device: str = "cuda") -> HuggingFaceEmbeddings:
+    
+    '''For Local'''
 
-def prepare_embeddings(sequences: list, device: str = "cuda:0"):
-    global _DOC_EMBEDDINGS, _SEQUENCES
-    _MODEL = get_model_qwen(device)
-    if _DOC_EMBEDDINGS is None or _SEQUENCES != sequences:
-        _DOC_EMBEDDINGS = _MODEL.embed_documents(sequences)
-        _SEQUENCES = sequences
-    return _DOC_EMBEDDINGS
+    # Load model embedding (phải giống model lúc insert để đảm bảo tương thích vector dim)
+    model_name = "Qwen/Qwen3-Embedding-0.6B"
+    return HuggingFaceEmbeddings(
+                    model_name=model_name,
+                    model_kwargs = {'device': device}
+                )
+
+def get_qwen_embedding_hf_endpoint(base_url: str = 'http://localhost:8080', device: str = "cuda") -> HuggingFaceEndpointEmbeddings:
+
+    ''' For Docker '''
+
+    return HuggingFaceEndpointEmbeddings(
+        model=base_url,
+    )
+
+def get_openai_embedding_base_url(base_url: str = 'http://localhost:8080') -> OpenAIEmbeddings:
+    return OpenAIEmbeddings(
+        model=base_url,
+        base_url=base_url,
+        api_key=os.getenv("OPENAI_API_KEY_EMBED"),
+        # With the `text-embedding-3` class
+        # of models, you can specify the size
+        # of the embeddings you want returned.
+        dimensions=1024
+    )
 
 # -------------------------
-# Hybrid Search (BM25 + VectorStore)
+# Init vector store
 # -------------------------
-def run_hybrid_search(model: HuggingFaceEmbeddings, query: str, doc_embeddings, k: int = 5):
-    path_csv = "src/hoanghamobile.csv"
-    path_stopwords = "src/stopwords-vietnamese.txt"
-    if not os.path.exists(path_csv):
-        raise FileNotFoundError(f"CSV file not found: {path_csv}")
-    if not os.path.exists(path_stopwords):
-        raise FileNotFoundError(f"Stopwords file not found: {path_stopwords}")
+
+def init_vectorstore_faiss(model, db_folder: str) -> FAISS:
+
+    docs = run_load_data_to_embedding('../store/comque_new.csv')
+    docs = run_normalization_data(docs, path_stopwords='../store/stopwords-vietnamese.txt')
     
-    # Load & normalize
-    sequences = run_load_data_to_embedding(path_csv)
-    sequences = run_normalization_data(sequences, path_stopwords)
+    os.makedirs(db_folder, exist_ok=True)
+    db_file = db_folder+"/index.faiss"
+    index = faiss.IndexFlatL2(len(model.embed_query("hello world")))
+    vt = FAISS(
+        embedding_function=model,
+        index=index,
+        docstore=InMemoryDocstore(),
+        index_to_docstore_id={},
+    )
     
-    # BM25
-    tokenized_corpus = [doc.split(" ") for doc in sequences]
-    bm25 = BM25Okapi(tokenized_corpus)
+    docs_faiss = []
+    for doc in docs:
+        docs_faiss.append(Document(page_content=doc))
+        
+    uuids = [str(uuid4()) for _ in range(len(docs_faiss))]
+    vt.from_documents(documents=docs_faiss, embedding=model)
     
-    tokenized_query = query.split(" ")
-    top_n = bm25.get_top_n(tokenized_query, sequences, n=k)
+    vt.save_local(db_file)
+      
+    return vt
+
+def init_vectorstore(model, db_folder: str, connection) -> SQLiteVec:
+
+    os.makedirs(db_folder, exist_ok=True)
+
+    db_file = db_folder+"/vec.db"
+    vt = SQLiteVec(table="state_union", connection=connection, embedding=model)
     
-    # VectorStore retrieval
-    connection = SQLiteVec.create_connection(db_file="../vec.db")
-    vector_store = SQLiteVec(table="state_union", db_file="../vec.db", embedding=model, connection=connection)
-    retriever = vector_store.as_retriever(search_kwargs={"k": k})
-    vector_docs = retriever.invoke(query)
-    
-    vector_results = [doc.page_content for doc in vector_docs]
-    
-    # Combine BM25 + VectorStore results
-    combined_results = [{"_id": i, "_content": v} for i, v in enumerate(top_n)]
-    combined_results += [{"_id": f"vec_{i}", "_content": v} for i, v in enumerate(vector_results)]
-    
-    return combined_results
+    # Nếu DB chưa tồn tại, thêm documents
+    if not os.path.exists(db_file):
+        
+        docs = run_load_data_to_embedding('../store/comque_new.csv')
+        docs = run_normalization_data(docs, path_stopwords='../store/stopwords-vietnamese.txt')
+        list_docs = [Document(page_content=dox, metadata={dox.split(',')[0]}) for dox in docs]
+        vt.add_documents(list_docs)
+        
+    return vt
