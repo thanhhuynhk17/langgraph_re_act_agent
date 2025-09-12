@@ -114,3 +114,12 @@ restart
 pip uninstall torch torchvision torchaudio -y
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
+
+
+# server embedding
+
+for gpu
+
+```powershell 
+(.venv) PS D:\llama-b6451-bin-win-cuda-12.4-x64> .\llama-server -m "C:\Users\lea26\Downloads\Qwen3-Embedding-0.6B-f16.gguf" --embedding --pooling last -ngl 99 -ub 8192 -c 32768 --threads 16 --threads-batch 16 --flash-attn on --host 0.0.0.0
+```

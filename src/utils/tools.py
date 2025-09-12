@@ -1,22 +1,15 @@
 import os
-from typing import Literal, Optional, List
+from typing import Literal
 from langchain.tools import tool
 from src.utils.schemas import HybridSearchInput
 from langchain_tavily import TavilySearch
-from langchain_openai import ChatOpenAI
+# from langchain_openai import ChatOpenAI
 from src.utils.react_constants import *
 
 from langchain_community.vectorstores import SQLiteVec
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_huggingface.embeddings import HuggingFaceEndpointEmbeddings
-from langchain.schema import Document
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.docstore.in_memory import InMemoryDocstore
-import faiss
-from langchain_community.vectorstores import FAISS
-from uuid import uuid4
+# import faiss
+# from langchain_community.vectorstores import FAISS
 from src.utils.toolhelper import run_load_data_to_embedding, run_normalization_data, get_model_qwen, get_qwen_embedding_hf_endpoint, get_openai_embedding_base_url, init_vectorstore_faiss, init_vectorstore
-
 
 from dotenv import load_dotenv
 
@@ -29,8 +22,9 @@ search_tool = TavilySearch()
 # -------------------------
 
 # _MODEL = get_qwen_embedding_hf_endpoint("http://localhost:8080") # chưa chính xác
-_MODEL = get_model_qwen() # chính xác
+# _MODEL = get_model_qwen() # chính xác
 # _MODEL = get_openai_embedding_base_url() # chưa chính xác
+_MODEL = None
 
 # -------------------------
 # Hybrid Search Tool
@@ -45,15 +39,23 @@ def hybrid_search(
     """
 
     global _MODEL
+    if _MODEL is None:
+        _MODEL = get_model_qwen()
+    
     path_db_folder = "./src/data"   # fixed: use consistent folder path
     
     os.makedirs(path_db_folder, exist_ok=True)
 
     db_file = os.path.join(path_db_folder, "vec.db")
-    connection = SQLiteVec.create_connection(db_file=db_file)
-    vt = init_vectorstore(_MODEL, path_db_folder, connection = connection) # oke
-    # vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder) # chưa được
     
+    connection = SQLiteVec.create_connection(db_file=db_file)
+    # vt = init_vectorstore(_MODEL, path_db_folder, connection = connection) # oke
+    
+    if not os.path.exists('./src/data/index.pkl'):
+        vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action='write') # oke
+    else:
+        vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action='load') # oke
+        
     results = vt.similarity_search(query, k=k)
     vector_results = [doc.page_content for doc in results]
 

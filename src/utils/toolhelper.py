@@ -1,37 +1,19 @@
+import numpy as np
 import pandas as pd
 import re
+import faiss
+from langchain_openai import OpenAIEmbeddings
 from underthesea import word_tokenize
-import os
-import random
-import numpy as np
-from rank_bm25 import BM25Okapi
-from typing import Optional
-from langchain_community.vectorstores import SQLiteVec
-from langchain_community.embeddings import HuggingFaceEmbeddings
-import os
-from typing import Literal, Optional, List
-from langchain_community.vectorstores import SQLiteVec
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_huggingface.embeddings import HuggingFaceEndpointEmbeddings
 from langchain.schema import Document
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.docstore.in_memory import InMemoryDocstore
-import faiss
-from langchain_community.vectorstores import FAISS
-from uuid import uuid4
-import os
-from typing import Literal, Optional, List
 from langchain_community.vectorstores import SQLiteVec
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_huggingface.embeddings import HuggingFaceEndpointEmbeddings
-from langchain.schema import Document
-from langchain_openai import OpenAIEmbeddings
 from langchain_community.docstore.in_memory import InMemoryDocstore
-import faiss
 from langchain_community.vectorstores import FAISS
 from uuid import uuid4
-from dotenv import load_dotenv
 
+import os
+from dotenv import load_dotenv
 load_dotenv()
 
 import unicodedata
@@ -127,7 +109,7 @@ def clean_text(text: str) -> str:
     text = text.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
     tokens = text.split(',')
     cleaned_tokens = tokens[:3] + [re.sub(r'[^0-9a-zA-ZÀ-Ỹà-ỹ\s]', '', t) for t in tokens[3:]]
-    return ','.join(cleaned_tokens)
+    return ' '.join(cleaned_tokens)
 
 def normalize_record(text: str, fix_inch_heu=False) -> str:
     if not text:
@@ -183,45 +165,57 @@ def get_openai_embedding_base_url(base_url: str = 'http://localhost:8080') -> Op
 # Init vector store
 # -------------------------
 
-def init_vectorstore_faiss(model, db_folder: str) -> FAISS:
+def init_vectorstore_faiss(model, db_folder: str, action: str ='write') -> FAISS:
 
-    docs = run_load_data_to_embedding('../store/comque_new.csv')
-    docs = run_normalization_data(docs, path_stopwords='../store/stopwords-vietnamese.txt')
-    
-    os.makedirs(db_folder, exist_ok=True)
-    db_file = db_folder+"/index.faiss"
-    index = faiss.IndexFlatL2(len(model.embed_query("hello world")))
-    vt = FAISS(
-        embedding_function=model,
-        index=index,
-        docstore=InMemoryDocstore(),
-        index_to_docstore_id={},
-    )
-    
-    docs_faiss = []
-    for doc in docs:
-        docs_faiss.append(Document(page_content=doc))
+    if action == "write":
+        docs = run_load_data_to_embedding('./src/store/comque_new.csv')
+        docs = run_normalization_data(docs, path_stopwords='./src/store/stopwords-vietnamese.txt')
+        docs = [' | '.join(doc.split(', ')) for doc in docs]
         
-    uuids = [str(uuid4()) for _ in range(len(docs_faiss))]
-    vt.from_documents(documents=docs_faiss, embedding=model)
-    
-    vt.save_local(db_file)
-      
-    return vt
+        dim = len(model.embed_query("hello world"))  # dimension
+        index = faiss.IndexFlatL2(dim)
 
-def init_vectorstore(model, db_folder: str, connection) -> SQLiteVec:
-
-    os.makedirs(db_folder, exist_ok=True)
-
-    db_file = db_folder+"/vec.db"
-    vt = SQLiteVec(table="state_union", connection=connection, embedding=model)
-    
-    # Nếu DB chưa tồn tại, thêm documents
-    if not os.path.exists(db_file):
+        vector_store = FAISS(
+            embedding_function=model,
+            index=index,
+            docstore=InMemoryDocstore(),
+            index_to_docstore_id={},
+        )
         
-        docs = run_load_data_to_embedding('../store/comque_new.csv')
-        docs = run_normalization_data(docs, path_stopwords='../store/stopwords-vietnamese.txt')
-        list_docs = [Document(page_content=dox, metadata={dox.split(',')[0]}) for dox in docs]
-        vt.add_documents(list_docs)
+        docs_faiss = [Document(page_content=txt) for txt in docs]
+        uuids = [str(uuid4()) for _ in range(len(docs_faiss))]
+
+        # -------------------------------
+        # 5. Add to FAISS
+        # -------------------------------
+        vector_store.add_documents(documents=docs_faiss, ids=uuids)
+        
+        # SAVE DATABASE
+        vector_store.save_local(db_folder)
+    else:
+        # load FAISS từ ./data
+        vector_store = FAISS.load_local(
+            folder_path=db_folder,
+            embeddings=model,
+            allow_dangerous_deserialization=True  # BẬT lên nếu file do bạn tạo
+        )
+    
+    return vector_store
+
+def init_vectorstore(model, db_folder: str, connection, action:str='write') -> SQLiteVec:
+
+    if action == 'write':
+        os.makedirs(db_folder, exist_ok=True)
+
+        db_file = db_folder+"/vec.db"
+        vt = SQLiteVec(table="state_union", connection=connection, embedding=model)
+        
+        # Nếu DB chưa tồn tại, thêm documents
+        if not os.path.exists(db_file):
+            
+            docs = run_load_data_to_embedding('../store/comque_new.csv')
+            docs = run_normalization_data(docs, path_stopwords='../store/stopwords-vietnamese.txt')
+            list_docs = [Document(page_content=dox, metadata={dox.split(',')[0]}) for dox in docs]
+            vt.add_documents(list_docs)
         
     return vt
