@@ -1,4 +1,4 @@
-from src.utils.react_constants import *
+from my_app.utils.react_constants import *
 import re
 import json
 import uuid

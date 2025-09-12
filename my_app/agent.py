@@ -9,7 +9,7 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES, RemoveMessage
 
 from pydantic import BaseModel
 
-from src.utils.helpers import load_model, create_tool_args
+from my_app.utils.helpers import load_model, create_tool_args
 
 OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", None)
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)
@@ -21,13 +21,13 @@ model = load_model(
 )
 
 import httpx
-from src.utils.prompts import generate_tool_prompt, PROMPT_REACT
-from src.utils.react_constants import *
-from src.utils.helpers import process_ai_message
+from my_app.utils.prompts import generate_tool_prompt, PROMPT_REACT
+from my_app.utils.react_constants import *
+from my_app.utils.helpers import process_ai_message
 
-from src.utils.tools import all_agent_tools
-from src.utils.interrupt_any_tool import add_human_in_the_loop
-from src.utils.logging_setup import logger
+from my_app.utils.tools import all_agent_tools
+from my_app.utils.interrupt_any_tool import add_human_in_the_loop
+from my_app.utils.logging_setup import logger
 
 import json
 

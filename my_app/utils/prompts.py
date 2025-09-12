@@ -1,4 +1,4 @@
-from src.utils.react_constants import *
+from my_app.utils.react_constants import *
 
 PROMPT_REACT = """
 You are designed to help with a variety of tasks, from answering questions to providing summaries to other types of analyses.
