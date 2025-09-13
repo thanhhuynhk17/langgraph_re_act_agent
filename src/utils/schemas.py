@@ -23,15 +23,15 @@ from typing import Any, Dict, Literal
     
 class HybridSearchInput(BaseModel):
     """
-    Input schema for the hybrid_search tool.
-    Combines keyword and semantic search for more accurate retrieval.
+    Input schema for the hybrid_search tool
+    Combines keyword and semantic search for more accurate retrieval
     """
     query: str = Field(
         ...,
-        description="The search query text. Can be natural language or keywords."
+        description="The search query text. Can be natural language or keywords"
     )
-    k: Literal[5, 10, 20] = Field(
-        10,
-        description="The number of top results to return. Must be either 5, 10 or 20."
+    k: Literal[20, 40] = Field(
+        20,
+        description="The number of top results to return. Must be either 20 or 40"
     )
 

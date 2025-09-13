@@ -135,7 +135,7 @@ tiktoken                  0.11.0
 tokenizers                0.22.0
 toml                      0.10.2
 torch                     2.5.1+cu121
-torchaudio                2.5.1+cu121
+torchaudio                2.5.1+cu121z
 torchvision               0.20.1+cu121
 tornado                   6.5.2
 tqdm                      4.67.1

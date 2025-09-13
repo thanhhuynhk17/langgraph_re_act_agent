@@ -34,7 +34,7 @@ _MODEL = None
 @tool("hybrid_search", args_schema=HybridSearchInput)
 def hybrid_search(
     query: str,
-    k: Literal[5, 10, 20] = 10
+    k: int
 ) -> str:
     """
     Perform a hybrid semantic search over a local FAISS (or SQLiteVec) vectorstore.

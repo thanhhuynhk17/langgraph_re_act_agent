@@ -104,13 +104,13 @@ ID,type_of_food,name_of_food,how_to_prepare,main_ingredients,taste,outstanding_f
 103,MÓN CANH,Canh cá bóp măng chua,"Cá bóp nấu măng chua, cà chua, me","Cá bóp, măng chua",Đồ mặn,"Măng chua, thịt cá ngọt, ngò gai","195,000",3-4 người
 104,MÓN CANH,Canh tần ô cá thác lác/ thịt bằm,Cá thác lác quết hoặc thịt bằm nấu với rau tần ô,"Tần ô, cá thác lác/thịt bằm",Đồ mặn,"Tần ô thơm, ngọt thanh","150,000",3-4 người
 105,MÓN CANH,Canh chua cá hú,"Cá hú nấu với bạc hà, cà chua, me chua","Cá hú, rau canh chua",Đồ mặn chua ngọt,"Cá hú, ngò om, ngò gai","150,000",3-4 người
-106,LẢU,Lẩu cá thì là,"Cá nấu lẩu với cà chua, thì là, hành","Cá, thì là",Đồ mặn chua ngọt,Thì là nổi bật,"480,000",4-5 người
-107,LẢU,Lẩu cá thác lác,Cá thác lác quết thả vào nồi lẩu rau,"Cá thác lác, rau các loại",Đồ mặn chua ngọt,"Rau thơm, thì là","480,000",4-5 người
-108,LẢU,Lẩu cua đồng,"Cua đồng nấu riêu, ăn cùng rau sống","Cua đồng, rau","Đồ ngọt béo, hơi chua","Gạch cua, hành phi","490,000",4-5 người
-109,LẢU,Lẩu ếch lá giang,"Ếch xào sơ, nấu lẩu với lá giang","Thịt ếch, lá giang","Đồ mặn, chua","Lá giang, sả","480,000",4-5 người
-110,LẢU,Lẩu cá bớp,Cá bớp nấu lẩu chua ngọt với rau,"Cá bớp, cà chua, me",Đồ mặn,"Rau om, cần tàu","490,000",4-5 người
-111,LẢU,Lẩu mắm,Cá bớp nấu lẩu chua ngọt với rau,"Mắm, cá, rau sống miền Tây",Đồ mặn,"Mắm cá, sả, ớt","490,000",4-5 người
-112,LẢU,Lẩu Dượng Bầu,"Lẩu cá linh, cá lóc… với bông điên điển, rau đồng","Cá đồng, rau bông mùa nước nổi",Đồ mặn,"Rau đồng, mắm ruốc nhẹ","490,000",4-5 người
+106,LẨU,Lẩu cá thì là,"Cá nấu lẩu với cà chua, thì là, hành","Cá, thì là",Đồ mặn chua ngọt,Thì là nổi bật,"480,000",4-5 người
+107,LẨU,Lẩu cá thác lác,Cá thác lác quết thả vào nồi lẩu rau,"Cá thác lác, rau các loại",Đồ mặn chua ngọt,"Rau thơm, thì là","480,000",4-5 người
+108,LẨU,Lẩu cua đồng,"Cua đồng nấu riêu, ăn cùng rau sống","Cua đồng, rau","Đồ ngọt béo, hơi chua","Gạch cua, hành phi","490,000",4-5 người
+109,LẨU,Lẩu ếch lá giang,"Ếch xào sơ, nấu lẩu với lá giang","Thịt ếch, lá giang","Đồ mặn, chua","Lá giang, sả","480,000",4-5 người
+110,LẨU,Lẩu cá bớp,Cá bớp nấu lẩu chua ngọt với rau,"Cá bớp, cà chua, me",Đồ mặn,"Rau om, cần tàu","490,000",4-5 người
+111,LẨU,Lẩu mắm,Cá bớp nấu lẩu chua ngọt với rau,"Mắm, cá, rau sống miền Tây",Đồ mặn,"Mắm cá, sả, ớt","490,000",4-5 người
+112,LẨU,Lẩu Dượng Bầu,"Lẩu cá linh, cá lóc… với bông điên điển, rau đồng","Cá đồng, rau bông mùa nước nổi",Đồ mặn,"Rau đồng, mắm ruốc nhẹ","490,000",4-5 người
 113,TRÁNG MIỆNG,Chè đậu xanh đánh,"Đậu xanh nấu chín, đánh nhuyễn với đường, có thể thêm nước cốt dừa","Đậu xanh, đường, nước cốt dừa","Đồ béo, ngọt","Đậu xanh, dừa","55,000",1 người
 114,TRÁNG MIỆNG,Sương sa sương sáo hột é,"Sương sa, sương sáo cắt miếng, trộn với hột é, đường, đá lạnh","Sương sa, sương sáo, hột é","Đồ béo, ngọt","Hương lá sương sáo, nước đường, hột é","55,000",1 người
 115,TRÁNG MIỆNG,Sương sa hạt lựu,"Hạt lựu (bột lọc nhuộm màu) luộc, ăn cùng sương sa và nước đường","Hạt lựu bột lọc, sương sa","Đồ béo, ngọt","Nước đường, lá dứa","55,000",1 người
