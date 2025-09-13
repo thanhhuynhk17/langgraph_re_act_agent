@@ -11,10 +11,13 @@ BG_JOB_ISOLATED_LOOPS=true langgraph dev --host 0.0.0.0
 
 ```.env
 BG_JOB_ISOLATED_LOOPS=true
-OPENAI_BASE_URL=https://83d6e051b37d.ngrok-free.app/v1
+OPENAI_BASE_URL=https://4922c9699b63.ngrok-free.app/v1
 TAVILY_API_KEY=
 LOG_LEVEL=INFO
 
+OPENAI_BASE_URL_EMBED=http://localhost:8080
+OPENAI_API_KEY_EMBED=<your-api-key>
+OPENAI_API_MODEL_NAME_EMBED=qwen3-embed
 ```
 
 # Project Structure
@@ -96,4 +99,27 @@ I now know the final answer.
 <react_final_answer>
 The final answer to the user’s question (MUST be written in Vietnamese).
 </react_final_answer>
+```
+
+
+# requirements.txt
+
+```bash
+pip install -r requirements.txt
+```
+
+restart
+
+```bash
+pip uninstall torch torchvision torchaudio -y
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+
+# server embedding
+
+for gpu
+
+```powershell 
+(.venv) PS D:\llama-b6451-bin-win-cuda-12.4-x64> .\llama-server -m "C:\Users\lea26\Downloads\Qwen3-Embedding-0.6B-f16.gguf" --embedding --pooling last -ngl 99 -ub 8192 -c 32768 --threads 16 --threads-batch 16 --flash-attn on --host 0.0.0.0
 ```

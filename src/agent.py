@@ -26,16 +26,16 @@ from src.utils.react_constants import *
 from src.utils.helpers import process_ai_message
 
 from src.utils.tools import all_agent_tools
+
 from src.utils.interrupt_any_tool import add_human_in_the_loop
 from src.utils.logging_setup import logger
-
 import json
 
 async def get_graph(*args):
     # checkpointer = InMemorySaver()
 
     # Tools
-    agent_tools = agent_tools
+    agent_tools = all_agent_tools
 
     AGENT_NAME = "GeoDaAgent"
 
@@ -55,7 +55,7 @@ async def get_graph(*args):
                 name_for_model=t.name,
                 name_for_human=t.name,
                 description_for_model=t.description,
-                schema=t.args_schema
+                schema=t.args_schema if isinstance(t.args_schema, type) and issubclass(t.args_schema, BaseModel) else BaseModel
             )
         prompt_react = PROMPT_REACT.format(
             tool_descs=tool_descs,

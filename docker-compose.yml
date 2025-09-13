@@ -1,0 +1,18 @@
+services:
+  text-embeddings-inference:
+    image: ghcr.io/huggingface/text-embeddings-inference:89-1.8
+    container_name: text-embeddings
+    # restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+      # - ./Qwen3-Embedding-0.6B:/data/Qwen3-Embedding-0.6B
+    command: --pooling last-token --max-batch-tokens 102400
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
