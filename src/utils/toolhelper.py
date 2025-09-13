@@ -41,10 +41,12 @@ TONE_NORM_VI = {
 def normalize_vnese(text):
     for i, j in TONE_NORM_VI.items():
         text = text.replace(i, j)
-    # Normalize input text to NFC
-    text = unicodedata.normalize("NFC", text)
+    # Remove control characters (ASCII 0–31, plus DEL 127)
+    text = re.sub(r'[\x00-\x1F\x7F]', '', text)
     # normalize spacing
     text = text.replace('\xa0', ' ')
+    # Normalize input text to NFC
+    text = unicodedata.normalize("NFC", text)
     return text
 
 # -------------------------

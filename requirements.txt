@@ -24,3 +24,5 @@ langgraph-api
 langgraph-cli
 langchain-huggingface
 faiss-cpu
+
+pendulum==3.1.0

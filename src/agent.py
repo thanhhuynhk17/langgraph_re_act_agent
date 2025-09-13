@@ -24,16 +24,29 @@ import httpx
 from src.utils.prompts import generate_tool_prompt, PROMPT_REACT
 from src.utils.react_constants import *
 from src.utils.helpers import process_ai_message
-
+from src.utils.schemas import menu_desc
 from src.utils.tools import all_agent_tools
 
 from src.utils.interrupt_any_tool import add_human_in_the_loop
 from src.utils.logging_setup import logger
 import json
+from datetime import datetime
+import pendulum
 
+def build_datetime_prompt() -> str:
+    now_vn = pendulum.now(DEFAULT_TZ)
+    now_iso = now_vn.to_iso8601_string()
+    now_vi = now_vn.format("HH:mm ngày DD/MM/YYYY")  # chuỗi tiếng Việt
+    
+    return (
+        "- Luôn parse thời gian đặt bàn (booking_time) thành ISO datetime với timezone Asia/Ho_Chi_Minh.\n"
+        "- Nếu khách nói 'tối nay', 'ngày mai', hãy chuyển thành ngày giờ cụ thể theo lịch hiện tại.\n"
+        f"- Hiện tại là: {now_iso} (tức {now_vi}).\n"
+    )
 async def get_graph(*args):
     # checkpointer = InMemorySaver()
-
+    config = args[0]
+    config["recursion_limit"] = 99
     # Tools
     agent_tools = all_agent_tools
 
@@ -68,13 +81,25 @@ async def get_graph(*args):
             TAG_FINAL_ANSWER = TAG_FINAL_ANSWER
         )
 
-        system_msg = f"""{prompt_react}
-""".strip()
+        datetime_prompt = build_datetime_prompt()
+        menu_prompt = "\n".join(["Cơm quê Dượng Bầu menu (mã món ăn, tên món ăn):",menu_desc])
+        info_prompt = "\n".join([
+            "Dựa vào các mẫu trò chuyện sau để giao tiếp với khách",
+            "Khách hỏi: Địa chỉ quán ở đâu?\nTrả lời: Dạ Cơm Quê Dượng Bầu ở địa chỉ Lầu 3 - chung cư 40E Ngô Đức Kế, Phường Sài Gòn, TP. HCM ạ, khi đến chung cư anh/chị cứ bấm thang máy lên lầu 3 nha.",
+            "Khách hỏi: Quán mở mấy giờ\nTrả lời: Dạ, Cơm Quê Dượng Bầu hoạt động từ 10h trưa đến 22h tối ạ 🥰",
+            "Khách hỏi: Có nhận ship không\n Trả lời: Dạ quán em có ship ạ. Mời anh/ chị xem menu và cho em xin list món và em gửi bill anh / chị chuyển khoản xong em lên đơn cho mình nhé ạ 🥰"
+        ])
+        system_msg = (
+            f"{prompt_react.strip()}\n\n"
+            f"{menu_prompt.strip()}\n\n"
+            f"{info_prompt.strip()}\n\n"
+            f"{datetime_prompt.strip()}"
+        )
+
         # print("system_msg", system_msg)
         return [SystemMessage(system_msg), *state["messages"]]
 
     def use_pre_hook(state, config: RunnableConfig):
-        print("agent_tools", agent_tools)
         last_msg = state["messages"][-1]
         artifact_json = None
         if isinstance(last_msg, ToolMessage):

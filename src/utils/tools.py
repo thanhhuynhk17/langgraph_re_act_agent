@@ -1,7 +1,7 @@
 import os
-from typing import Literal
+from typing import Literal, Dict
 from langchain.tools import tool
-from src.utils.schemas import HybridSearchInput, SearchTypeCategoryAndPeople, SearchValuesInTypeInput
+from src.utils.schemas import HybridSearchInput, SearchTypeCategoryAndPeople, SearchValuesInTypeInput, menu_df
 from langchain_tavily import TavilySearch
 # from langchain_openai import ChatOpenAI
 from src.utils.react_constants import *
@@ -74,15 +74,153 @@ def hybrid_search(
         
     results = vt.similarity_search(query.lower(), k=k)
     vector_results = [doc.page_content for doc in results]
-
-    combined_results = [
-        {"_id": f"{v.split()[0]}", "_content": " ".join(v.split()[1:])}
-        for v in vector_results
+    
+    header = ["Mã món ăn", "Phân loại", "Tên món ăn", "Mô tả ngắn",
+        "Nguyên liệu", "Vị cay / chua / mặn / ngọt", 
+        "Hương vị nổi bật", "Giá món ăn (VNĐ)", "Khẩu phần ăn"
     ]
+    header_str = ",".join(header)
+    vector_results_str = "\n".join(vector_results)
+    # combined_results = [
+    #     {"_id": f"{v.split()[0]}", "_content": " ".join(v.split()[1:])}
+    #     for v in vector_results
+    # ]
+    # return "\n".join(
+    #     [f"{r.get('_id', 'N/A')} - {r.get('_content', '')}" for r in combined_results]
+    # )
+    return "\n".join([header_str,vector_results_str]), results
+    
 
-    return "\n".join(
-        [f"{r.get('_id', 'N/A')} - {r.get('_content', '')}" for r in combined_results]
+# Take order
+from src.utils.schemas import Dish, CustomerInfo, TakeOrderInput, UpdateOrderInput, DeleteOrderInput
+from typing import Any, List, Optional, Type
+from langchain_core.tools import BaseTool, ToolException
+from pydantic import BaseModel, Field
+from datetime import datetime
+import pandas as pd
+from src.utils.react_constants import DEFAULT_TZ
+from src.utils.crud_orders_db import create_order, update_order, delete_order, get_order
+import pendulum
+import hashlib  # For hashing phone to generate table_id
+
+# The class-based tool
+class TakeOrder(BaseTool):
+    name: str = "take_order"
+    description: str = (
+        "Handles customer orders or reservations, including validation against the menu. "
+        "Useful for processing dine-in or takeaway requests with dish details and notes. "
+        "Input should include customer info, order type, time, dishes, and optional note."
     )
+    args_schema: Type[BaseModel] = TakeOrderInput
+    handle_tool_error: bool = True  # Like Tavily, enable error handling
+
+    # Optional parameters (like Tavily's overrides)
+    menu_df: pd.DataFrame = Field(menu_df)
+    """Menu DataFrame (can be overridden if needed)."""
+
+    def _parse_price(self, raw: str) -> int:
+        """Turn '145,000' -> 145000."""
+        return int(raw.replace(",", ""))
+
+    def _run(
+        self,
+        customer: CustomerInfo,
+        is_takeaway: bool,
+        booking_time: datetime,
+        dishes: Optional[List[Dish]] = None,
+        note: Optional[str] = None,
+        run_manager: Optional[Any] = None,
+    ) -> str:
+        try:
+            if dishes:
+                for raw in dishes:
+                    dish = Dish.model_validate(raw)   # <-- triggers your validator
+
+            # 2. ---- force local TZ if naive ----
+            if isinstance(booking_time, str):
+                booking_time = pendulum.parse(booking_time)   # str -> datetime
+            booking_time = DEFAULT_TZ.convert(booking_time)  # now safe to use
+
+            # 3. ---- build dish list for CRUD ----
+            dish_list = [
+                {"id": d.id, "name": d.name_of_food, "quantity": d.quantity}
+                for d in (dishes or [])
+            ]
+
+            # 4. ---- call CRUD layer ----
+            if dishes:
+                total_cost = float(
+                    sum(
+                        self._parse_price(self.menu_df.set_index("ID").loc[d.id, "current_price"]) * d.quantity
+                        for d in dishes
+                    )
+                )
+            else:
+                total_cost = 0.0
+            
+            order_id, table_id = create_order(
+                guest_name=customer.name,
+                guest_phone_number=customer.phone,
+                total_cost=total_cost,
+                is_takeaway=is_takeaway,
+                dishes=dish_list,
+                booking_time=booking_time,
+                notes=note,
+            )
+
+            # 5. ---- pretty answer ----
+            dishes_str = ", ".join([f"{d.name_of_food}×{d.quantity}" for d in dishes]) if dishes else "Chưa chọn"
+            return (
+                f"✅ Đặt bàn thành công cho {customer.name} ({customer.phone}).\n"
+                f"Thời gian: {booking_time.strftime('%Y-%m-%d %H:%M %z')}\n"
+                f"Loại: {'Mang đi' if is_takeaway else 'Ăn tại chỗ'}\n"
+                f"Mã đơn: {order_id}  |  Bàn: {table_id or 'không có thông tin'}\n"
+                f"Món: {dishes_str}\n"
+                f"Ghi chú: {note or 'Không'}"
+            )
+
+        except Exception as e:
+            raise ToolException(f"Order processing failed: {e}") from e
+
+    # ------------------------------------------------------------------
+    async def _arun(self, *args, **kwargs) -> str:
+        """Async entry-point; re-use sync implementation."""
+        return self._run(*args, **kwargs)
+
+
+# -------------------------
+# LangChain tool: update order
+# -------------------------
+class UpdateOrderTool(BaseTool):
+    name: str = "update_order"              # ✅ use type annotation
+    description: str = (
+        "Update an existing order by its order_id. You can update total_cost or notes."
+    )
+    args_schema: Type[BaseModel] = UpdateOrderInput
+    handle_tool_error: bool = True
+
+    def _run(self, order_id: str, total_cost: Optional[float] = None, notes: Optional[str] = None) -> Dict[str, Any]:
+        success = update_order(order_id, total_cost=total_cost, notes=notes)
+        if not success:
+            return {"success": False, "message": f"Order {order_id} not found or nothing updated."}
+        return {"success": True, "order": get_order(order_id)}
+
+    async def _arun(self, order_id: str, total_cost: Optional[float] = None, notes: Optional[str] = None) -> Dict[str, Any]:
+        return self._run(order_id, total_cost, notes)
+
+
+class DeleteOrderTool(BaseTool):
+    name: str = "delete_order"              # ✅ type annotation
+    description: str = "Delete an order by its order_id."
+    args_schema: Type[BaseModel] = DeleteOrderInput
+    handle_tool_error: bool = True
+
+    def _run(self, order_id: str) -> Dict[str, Any]:
+        success = delete_order(order_id)
+        return {"success": success, "order_id": order_id}
+
+    async def _arun(self, order_id: str) -> Dict[str, Any]:
+        return self._run(order_id)
 
 # -------------------------
 # Category Search Tool
@@ -176,4 +314,4 @@ def search_values_in_type(
         vals_counts.values.tolist()
     )).tolist()
 # exports all tools for agent
-all_agent_tools = [hybrid_search, search_type_category_and_people, search_values_in_type]
+all_agent_tools = [hybrid_search, TakeOrder(), UpdateOrderTool(), DeleteOrderTool(), search_type_category_and_people, search_values_in_type]
