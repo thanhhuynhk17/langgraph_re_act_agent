@@ -41,7 +41,25 @@ class HybridSearchInput(BaseModel):
         ...,
         description="The number of top results to return. Must be either 5, 10, 50, 100 or more than"
     )
-
+    
+# FIXME: deduplicate allowed options
+VALID_TYPES = [
+    "món cá",
+    "món khai vị",
+    "món ăn chơi",
+    "món rau",
+    "món gỏi",
+    "món gà, vịt & trứng",
+    "món tôm & mực",
+    "món xào",
+    "nước mát nhà làm",
+    "lẩu",
+    "món thịt",
+    "món sườn & đậu hũ",
+    "món canh",
+    "các loại khô",
+    "tráng miệng"
+]
 class SearchTypeCategoryAndPeople(BaseModel):
     """
     Input schema for the search_type_category_and_people tool.
@@ -81,8 +99,36 @@ class SearchTypeCategoryAndPeople(BaseModel):
         ...,
         description="Keyword to search across descriptive columns. Example: 'cay', 'mặn', 'ngọt'."
     )
-    
-    
+
+    @model_validator(mode="before")
+    def provide_guidance(cls, values):
+        errors = []
+
+        # values could be {} if input is empty
+        if "value_type_of_food" not in values:
+            errors.append(
+                "value_type_of_food is missing. Possible values are:\n" +
+                ",".join(f'"{t}"' for t in VALID_TYPES)
+            )
+        if "value_option" not in values or not values.get("value_option", "").strip():
+            errors.append("value_option is missing. Please provide a keyword to search. Example: 'cay', 'mặn', 'ngọt'.")
+
+        if errors:
+            raise ValueError("\n".join(errors))
+
+        return values
+
+# FIXME: deduplicate allowed options
+VALID_COLUMNS = [
+    "type_of_food",
+    "name_of_food",
+    "how_to_prepare",
+    "main_ingredients",
+    "taste",
+    "outstanding_fragrance",
+    "current_price",
+    "number_of_people_eating"
+]
 class SearchValuesInTypeInput(BaseModel):
     """
     Input schema for the search_values_in_type tool.
@@ -113,11 +159,20 @@ class SearchValuesInTypeInput(BaseModel):
         )
     )
 
-
+    @model_validator(mode="before")
+    def provide_guidance(cls, values):
+        # values is a dict; it may be empty
+        if "name_col" not in values or not values.get("name_col"):
+            raise ValueError(
+                "name_col is missing. Please select one of the valid columns:\n" +
+                ",".join(f'"{col}"' for col in VALID_COLUMNS)
+            )
+        return values
 ## Take order
 
 # Load menu
 # FIXME: move into Tool class
+
 menu_df = pd.read_csv("./src/store/comque_new.csv", encoding="utf-8")
 menu_ids = menu_df["ID"].to_list()
 menu_names = menu_df["name_of_food"].to_list()

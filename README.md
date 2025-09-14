@@ -6,7 +6,7 @@ This project demonstrates how to use **LangGraph** with a React-based agent, app
 
 To run in development mode, use:
 ```cli
-BG_JOB_ISOLATED_LOOPS=true langgraph dev --host 0.0.0.0
+BG_JOB_ISOLATED_LOOPS=true langgraph dev --host 0.0.0.0 --allow-blocking
 ```
 
 ```.env

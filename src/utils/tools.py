@@ -1,7 +1,7 @@
 import os
 from typing import Literal, Dict
 from langchain.tools import tool
-from src.utils.schemas import HybridSearchInput, SearchTypeCategoryAndPeople, SearchValuesInTypeInput, menu_df
+from src.utils.schemas import HybridSearchInput, SearchTypeCategoryAndPeople, SearchValuesInTypeInput
 from langchain_tavily import TavilySearch
 # from langchain_openai import ChatOpenAI
 from src.utils.react_constants import *
@@ -55,8 +55,8 @@ def hybrid_search(
 
     global _MODEL
     if _MODEL is None:
-        # _MODEL = get_model_qwen(device='cuda:0') # oke
-        _MODEL = get_qwen_embedding_hf_endpoint() # oke
+        _MODEL = get_model_qwen(device='cuda:0') # oke
+        # _MODEL = get_qwen_embedding_hf_endpoint() # oke
     
     path_db_folder = "./src/data"   # fixed: use consistent folder path
     
@@ -95,13 +95,19 @@ def hybrid_search(
 from src.utils.schemas import Dish, CustomerInfo, TakeOrderInput, UpdateOrderInput, DeleteOrderInput
 from typing import Any, List, Optional, Type
 from langchain_core.tools import BaseTool, ToolException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 import pandas as pd
 from src.utils.react_constants import DEFAULT_TZ
 from src.utils.crud_orders_db import create_order, update_order, delete_order, get_order
 import pendulum
 import hashlib  # For hashing phone to generate table_id
+
+def get_database() -> pd.DataFrame:
+    global _DATABASE
+    if _DATABASE is None:
+        _DATABASE = pd.read_csv('./src/store/comque_new.csv')
+    return _DATABASE
 
 # The class-based tool
 class TakeOrder(BaseTool):
@@ -115,8 +121,7 @@ class TakeOrder(BaseTool):
     handle_tool_error: bool = True  # Like Tavily, enable error handling
 
     # Optional parameters (like Tavily's overrides)
-    menu_df: pd.DataFrame = Field(menu_df)
-    """Menu DataFrame (can be overridden if needed)."""
+    menu_df: pd.DataFrame = Field(default_factory=get_database)
 
     def _parse_price(self, raw: str) -> int:
         """Turn '145,000' -> 145000."""
