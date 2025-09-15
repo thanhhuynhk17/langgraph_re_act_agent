@@ -55,7 +55,7 @@ def hybrid_search(
 
     global _MODEL
     if _MODEL is None:
-        _MODEL = get_model_qwen(device='cuda:0') # oke
+        _MODEL = get_model_qwen(device='cpu') # oke
         # _MODEL = get_qwen_embedding_hf_endpoint() # oke
     
     path_db_folder = "./src/data"   # fixed: use consistent folder path
