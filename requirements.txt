@@ -26,3 +26,4 @@ langchain-huggingface
 faiss-cpu
 
 pendulum==3.1.0
+graphiti_core==0.20.4
