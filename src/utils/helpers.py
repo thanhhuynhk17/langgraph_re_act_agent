@@ -70,12 +70,23 @@ def create_tool_args(action, action_input):
     }]
     return {"tool_calls": tool_calls}
 
+
+def ignore_before_last_think(text: str) -> str:
+    # Split by the tag
+    parts = text.rsplit("</think>", 1)
+    # Return the part after the last </think>
+    return parts[-1].strip()
+
 def process_ai_message(msg: AIMessage, all_tools: List[str]) -> AIMessage:
     """
     Processes the AI message, parsing for the new XML-style tags and
     formatting the output accordingly.
     """
     tool_calls = msg.additional_kwargs.get("tool_calls", None)
+    
+    # ignore all </think> tags
+    msg.content = ignore_before_last_think(msg.content)
+    
     has_action, action, action_input, thought, final_answer = _detect_tool(msg.content)
 
     if has_action and action.lower() not in [t.lower() for t in all_tools]:
@@ -93,6 +104,8 @@ def process_ai_message(msg: AIMessage, all_tools: List[str]) -> AIMessage:
             content += f"<{TAG_THOUGHT}>{thought}</{TAG_THOUGHT}>\n\n"
         
         response_content = final_answer if final_answer else msg.content.strip()
+        if response_content == "":
+            return None
         content += f"<{TAG_FINAL_ANSWER}>{response_content}</{TAG_FINAL_ANSWER}>"
         return AIMessage(content=content)
 

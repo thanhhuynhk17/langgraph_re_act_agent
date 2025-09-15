@@ -93,13 +93,17 @@ async def get_graph(*args):
             f"{prompt_react.strip()}\n\n"
             f"{menu_prompt.strip()}\n\n"
             f"{info_prompt.strip()}\n\n"
-            f"{datetime_prompt.strip()}"
+            f"{datetime_prompt.strip()}\n\n"
+            "Thông tin khuyến mãi: chưa có chương trình khuyến mãi.\n"
+            "Thông tin chuyển khoản:\n- Anh Vinh quản lý - Ngân hàng VietinBank - Số tài khoản: 105872648804\n- Anh Đức WorldWide - Ngân hàng Techcombank - Số tài khoản: 9808888088\n\n"
+            "Only provide verified information and avoid speculation. Cite sources if available. If you are unsure, say 'Chưa có thông tin'. Explain your reasoning step by step before giving an answer."
         )
 
         # print("system_msg", system_msg)
         return [SystemMessage(system_msg), *state["messages"]]
 
     def use_pre_hook(state, config: RunnableConfig):
+        print("use_pre_hook", state)
         last_msg = state["messages"][-1]
         artifact_json = None
         if isinstance(last_msg, ToolMessage):
@@ -142,13 +146,20 @@ async def get_graph(*args):
 
     # Prevent hallucinations: 
     def use_post_hook(state, config: RunnableConfig):
+        print("Post hooked: check action.")
+        
         last_msg = state["messages"][-1]
         if not isinstance(last_msg, AIMessage):
             return # do nothing
-        print("Post hooked: check action.")
         all_tools = [t.name for t in agent_tools]
         new_msg = process_ai_message(last_msg, all_tools)
-
+        if not new_msg:
+            print("goto triggered")
+            # goto prev
+            return Command(
+                goto="pre_model_hook",
+                update={"messages": [RemoveMessage(id=last_msg.id)]},  # add tool result
+            )
         return {
             **state,
             "messages": [RemoveMessage(id=last_msg.id), new_msg],
@@ -161,7 +172,7 @@ async def get_graph(*args):
                     pre_model_hook=use_pre_hook,
                     post_model_hook=use_post_hook,
                     prompt=use_geoda_prompt,
-                    debug=False
+                    debug=True
                 )
 
     return geoda_agent
