@@ -88,7 +88,7 @@ def hybrid_search(
     # return "\n".join(
     #     [f"{r.get('_id', 'N/A')} - {r.get('_content', '')}" for r in combined_results]
     # )
-    return "\n".join([header_str,vector_results_str]), results
+    return "\n".join([header_str,vector_results_str])
     
 
 # Take order
@@ -319,4 +319,4 @@ def search_values_in_type(
         vals_counts.values.tolist()
     )).tolist()
 # exports all tools for agent
-all_agent_tools = [hybrid_search, TakeOrder(), UpdateOrderTool(), DeleteOrderTool(), search_type_category_and_people, search_values_in_type]
+all_agent_tools = [ TakeOrder(), UpdateOrderTool(), DeleteOrderTool(), search_type_category_and_people, search_values_in_type]

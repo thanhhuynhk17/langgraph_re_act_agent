@@ -2,14 +2,14 @@ import os
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
-
+from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.types import Command, interrupt
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.message import REMOVE_ALL_MESSAGES, RemoveMessage
 
 from pydantic import BaseModel
 
-from src.utils.helpers import load_model, create_tool_args
+from src.utils.helpers import load_model, chitchat_classify
 
 OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", None)
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)
@@ -21,10 +21,10 @@ model = load_model(
 )
 
 import httpx
-from src.utils.prompts import generate_tool_prompt, PROMPT_REACT
+from src.utils.prompts import generate_tool_prompt, PROMPT_REACT, CHITCHAT_SYS_PROMPT
 from src.utils.react_constants import *
 from src.utils.helpers import process_ai_message
-from src.utils.schemas import menu_desc
+from src.utils.schemas import menu_desc, CustomAgentState
 from src.utils.tools import all_agent_tools
 
 from src.utils.interrupt_any_tool import add_human_in_the_loop
@@ -112,9 +112,7 @@ async def get_graph(*args):
                 state["messages"][-1].content = last_msg.content.strip()
             else:
                 # Chưa có => bọc trong cặp thẻ
-                state["messages"][-1].content = f"""
-<{TAG_OBSERVATION}>{last_msg.content.strip()}</{TAG_OBSERVATION}>
-""".strip()
+                state["messages"][-1].content = f"<{TAG_OBSERVATION}>{last_msg.content.strip()}</{TAG_OBSERVATION}>".strip()
 
             if last_msg.artifact:
                 if isinstance(last_msg.artifact, BaseModel):
@@ -129,9 +127,7 @@ async def get_graph(*args):
             if f"<{TAG_QUESTION}>" in last_msg.content:
                 state["messages"][-1].content = last_msg.content.strip()
             else:
-                state["messages"][-1].content = f"""
-<{TAG_QUESTION}>{last_msg.content.strip()}</{TAG_QUESTION}>
-""".strip()
+                state["messages"][-1].content = f"<{TAG_QUESTION}>{last_msg.content.strip()}</{TAG_QUESTION}>".strip()
 
             # remove duplicate human message
             if len(state["messages"]) > 1 and isinstance(state["messages"][-2], HumanMessage):
@@ -158,13 +154,14 @@ async def get_graph(*args):
             # goto prev
             return Command(
                 goto="pre_model_hook",
-                update={"messages": [RemoveMessage(id=last_msg.id)]},  # add tool result
+                update={"messages": [RemoveMessage(id=last_msg.id)]},
             )
         return {
             **state,
             "messages": [RemoveMessage(id=last_msg.id), new_msg],
         }
 
+    # subgraph
     geoda_agent = create_react_agent(
                     model,
                     name=AGENT_NAME,
@@ -172,7 +169,47 @@ async def get_graph(*args):
                     pre_model_hook=use_pre_hook,
                     post_model_hook=use_post_hook,
                     prompt=use_geoda_prompt,
+                    state_schema=CustomAgentState,
                     debug=True
                 )
 
-    return geoda_agent
+    # Due to pre_model_hook can't directly jump to END, 
+    # wrap geoda_agent as a subgraph and add a chitchat_router node at begin
+    builder = StateGraph(CustomAgentState)
+    def chitchat_router(state):
+        is_chitchat = chitchat_classify(state["messages"])
+        if is_chitchat:
+            print("chitchat hooked!")
+            res_msg = model.invoke([
+                SystemMessage(content=CHITCHAT_SYS_PROMPT),
+                *state["messages"]
+            ])
+            res_msg.content = f"<{TAG_FINAL_ANSWER}>{res_msg.content}</{TAG_FINAL_ANSWER}>"
+
+            return {
+                "messages": [res_msg],
+                "is_chitchat": True,
+            }
+        # not chitchat → pass state forward
+        return {
+            # "messages": state["messages"],
+            "is_chitchat": False,
+        }
+
+    builder.add_node("chitchat_router", chitchat_router)
+    builder.add_node("geoda_agent", geoda_agent)
+
+    # Conditional routing: read flag from state
+    def route_condition(state):
+        return "end" if state["is_chitchat"] else "geoda_agent"
+
+    builder.add_conditional_edges(
+        "chitchat_router",
+        route_condition,
+        {"end": END, "geoda_agent": "geoda_agent"}
+    )
+
+    builder.set_entry_point("chitchat_router")
+    graph = builder.compile()
+
+    return graph

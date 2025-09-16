@@ -1,6 +1,4 @@
-# from copilotkit import CopilotKitState
-# from typing import Literal
-# from langgraph.managed import IsLastStep, RemainingSteps
+from langgraph.managed import IsLastStep, RemainingSteps
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, Dict, Literal
 from datetime import datetime
@@ -8,25 +6,12 @@ import pandas as pd
 from typing import List, Optional
 from src.utils.react_constants import DEFAULT_TZ
 import pendulum
+from langgraph.graph import MessagesState
 
+class CustomAgentState(MessagesState):
+    remaining_steps: RemainingSteps
+    is_chitchat: bool
 
-# import json
-
-# # FIXME: remove CopilotKitState
-# class AgentState(CopilotKitState):
-#     language: Literal["english", "vietnamese"] = "vietnamese"
-
-#     is_last_step: IsLastStep
-
-#     remaining_steps: RemainingSteps
-
-#     json_data: Dict[str, Any]
-
-    # @field_validator("json_data", mode="before")
-    # def parse_json_string(cls, v):
-    #     if isinstance(v, str):
-    #         return json.loads(v)
-    #     return v
     
 class HybridSearchInput(BaseModel):
     """
@@ -255,3 +240,12 @@ class UpdateOrderInput(BaseModel):
 class DeleteOrderInput(BaseModel):
     order_id: str = Field(..., description="The short order ID to delete.")
 
+# -------------------------
+# For routing incoming message
+# -------------------------
+class ChitChatCheck(BaseModel):
+    is_chitchat: bool = Field(
+        ...,
+        description="True if the user message is casual chit-chat (greetings, small talk, thanks, etc.), "
+                    "False if the user message is about restaurant info (menu, hours, ordering, etc.)."
+    )

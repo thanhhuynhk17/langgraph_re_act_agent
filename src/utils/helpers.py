@@ -1,3 +1,7 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.utils.react_constants import *
 import re
 import json
@@ -6,10 +10,16 @@ from typing import Tuple, List, Union
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+# for routing incoming message
+from src.utils.schemas import ChitChatCheck
+from langchain_core.messages import SystemMessage, HumanMessage
+
 def load_model(
     model_name="qwen3-30b-a3b",
     base_url="http://localhost:8000/v1",
-    api_key="dummy_text"):
+    api_key="dummy_text",
+    temperature=0.7
+    ):
     """
     Defines and returns the language model instance, updating the stop sequence
     to use the new XML tag format for observations.
@@ -18,12 +28,13 @@ def load_model(
         model=model_name,
         base_url=base_url,
         api_key=api_key,
-        temperature=0.6,
-        top_p=0.95,
-        extra_body={"top_k": 20, "min_p": 0.0},
+        temperature=temperature,
+        # top_p=0.95,
+        # extra_body={"top_k": 20, "min_p": 0.0},
         # IMPORTANT: Updated the stop sequence to the new opening tag format
         stop_sequences=[f"<{TAG_OBSERVATION}"],
         streaming=True,
+        max_completion_tokens=4096
     )
     return model
 
@@ -128,3 +139,26 @@ def process_ai_message(msg: AIMessage, all_tools: List[str]) -> AIMessage:
     additional_kwargs = create_tool_args(action, action_input)
 
     return AIMessage(content=content, additional_kwargs=additional_kwargs)
+
+
+# Router: check user message is chitchat or ask bussiness info
+
+def chitchat_classify(messages):
+    last_msg = messages[-1]
+    if not isinstance(last_msg, HumanMessage): # do nothing
+        False
+
+    OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", None)
+    OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
+
+    model = load_model(
+        model_name=OPENAI_MODEL_NAME,
+        base_url=OPENAI_BASE_URL,
+        api_key=OPENAI_API_KEY,
+        temperature=0 # greedy decoding 
+    ).with_structured_output(ChitChatCheck)
+    
+    chitchatcheck = model.invoke(messages)
+    
+    return chitchatcheck.is_chitchat
