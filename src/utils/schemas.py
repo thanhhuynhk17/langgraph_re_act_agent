@@ -2,13 +2,17 @@
 # from typing import Literal
 # from langgraph.managed import IsLastStep, RemainingSteps
 from pydantic import BaseModel, Field, model_validator
+# from langchain_core.callbacks import (
+#     AsyncCallbackManagerForToolRun,
+#     CallbackManagerForToolRun,
+# )
+from langchain_community.vectorstores import SQLiteVec
 from typing import Any, Dict, Literal
 from datetime import datetime
 import pandas as pd
 from typing import List, Optional
 from src.utils.react_constants import DEFAULT_TZ
 import pendulum
-
 
 # import json
 
@@ -27,21 +31,10 @@ import pendulum
     #     if isinstance(v, str):
     #         return json.loads(v)
     #     return v
-    
-class HybridSearchInput(BaseModel):
-    """
-    Input schema for the hybrid_search tool
-    Combines keyword and semantic search for more accurate retrieval
-    """
-    query: str = Field(
-        ...,
-        description="The search query text. Can be natural language or keywords"
-    )
-    k: int = Field(
-        ...,
-        description="The number of top results to return. Must be either 5, 10, 50, 100 or more than"
-    )
-    
+class HybridSearch(BaseModel):
+    text_query: str = Field(description="Customer data query questions")
+    k: int = Field(description="Total number of query fields to search")
+
 # FIXME: deduplicate allowed options
 VALID_TYPES = [
     "món cá",
