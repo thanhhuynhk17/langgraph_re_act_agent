@@ -4,13 +4,14 @@ import re
 import faiss
 from langchain_openai import OpenAIEmbeddings
 from underthesea import word_tokenize
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_huggingface.embeddings import HuggingFaceEndpointEmbeddings
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain.schema import Document
 from langchain_community.vectorstores import SQLiteVec
 from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.vectorstores import FAISS
 from uuid import uuid4
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 import os
 from dotenv import load_dotenv
@@ -133,7 +134,7 @@ def run_normalization_data(sequences: list, path_stopwords: str="src/stopwords-v
     sequences = [normalize_vnese(seq) for seq in sequences]
     return sequences
 
-def get_model_qwen(device: str = "cuda") -> HuggingFaceEmbeddings:
+def get_model_qwen(device: str = "cuda:0") -> HuggingFaceEmbeddings:
     
     '''For Local'''
 
@@ -144,13 +145,16 @@ def get_model_qwen(device: str = "cuda") -> HuggingFaceEmbeddings:
                     model_kwargs = {'device': device}
                 )
 
-def get_qwen_embedding_hf_endpoint(base_url: str = 'http://localhost:8080', device: str = "cuda") -> HuggingFaceEndpointEmbeddings:
+from huggingface_hub import InferenceClient
+
+def get_qwen_embedding_hf_endpoint(base_url: str = 'http://localhost:8080') -> HuggingFaceEndpointEmbeddings:
 
     ''' For Docker '''
 
     return HuggingFaceEndpointEmbeddings(
-        model=base_url,
-    )
+    model=base_url,
+    task="feature-extraction",
+)
 
 def get_openai_embedding_base_url(base_url: str = 'http://localhost:8080') -> OpenAIEmbeddings:
     return OpenAIEmbeddings(

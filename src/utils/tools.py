@@ -1,7 +1,7 @@
 import os
-from typing import Literal, Dict
+from typing import Literal, Dict, Optional
 from langchain.tools import tool
-from src.utils.schemas import HybridSearchInput, SearchTypeCategoryAndPeople, SearchValuesInTypeInput
+from src.utils.schemas import HybridSearch, SearchTypeCategoryAndPeople, SearchValuesInTypeInput
 from langchain_tavily import TavilySearch
 # from langchain_openai import ChatOpenAI
 from src.utils.react_constants import *
@@ -12,6 +12,13 @@ from src.utils.toolhelper import run_load_data_to_embedding, run_normalization_d
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
+# from utils.tools import init_vectorstore_faiss
+from rank_bm25 import BM25Okapi
+from langchain_core.tools.base import ArgsSchema
+from langchain_core.tools import BaseTool
+from typing import ClassVar
+from src.utils.toolhelper import run_load_data_to_embedding, run_normalization_data, get_model_qwen, init_vectorstore, get_qwen_embedding_hf_endpoint
+import os
 
 load_dotenv()
 
@@ -26,69 +33,84 @@ search_tool = TavilySearch()
 # _MODEL = get_qwen_embedding_hf_endpoint("http://localhost:8080") # chưa chính xác
 # _MODEL = get_model_qwen() # chính xác
 # _MODEL = get_openai_embedding_base_url() # chưa chính xác
-_MODEL = None
 _DATABASE = None
+_MODEL = get_qwen_embedding_hf_endpoint()
+_VEC_STORE = init_vectorstore(
+    _MODEL, 
+    "./src/data", 
+    connection = SQLiteVec.create_connection(db_file="./src/data/vec.db")
+    )
 # -------------------------
 # Hybrid Search Tool
 # -------------------------
-@tool("hybrid_search", args_schema=HybridSearchInput)
-def hybrid_search(
-    query: str,
-    k: int
-) -> str:
-    """
-    Perform a semantic search over a local FAISS vectorstore.
-
-    Behavior:
-    - Ensures ./src/data exists and opens/creates ./src/data/vec.db (SQLite connection is created but not used for search).
-    - Initializes FAISS vectorstore: if ./src/data/index.pkl missing -> build index (action='write'), otherwise load (action='load').
-    - Runs semantic similarity search with `vt.similarity_search(query.lower(), k=k)`.
-    - Returns a single string where each result line has the format: "<id> - <content>\n".
-    - The id is extracted from the first token of the vectorstore document (`doc.page_content.split()[0]`).
-    - The content is the rest of the document (`" ".join(tokens[1:])`).
-    Notes / Limitations:
-    - Despite the function name, this implementation uses FAISS semantic search only (not a hybrid of FAISS+SQLite).
-    - Lowercasing the query (`query.lower()`) may affect case-sensitive retrieval.
-    - The id extraction method assumes the stored documents begin with an identifier token — change logic if your doc format differs.
-    - For robust programmatic use, consider returning a structured object (list[dict]) rather than a single joined string.
-    """
-
-    global _MODEL
-    if _MODEL is None:
-        _MODEL = get_model_qwen(device='cpu') # oke
-        # _MODEL = get_qwen_embedding_hf_endpoint() # oke
+class HybridSearchInput(BaseTool):
+    name: str = "Hybrid similarity search"
+    description: str = "useful for when you need to answer questions: how many dishes/drinks are on the menu?"
+    args_schema: Optional[ArgsSchema] = HybridSearch
+    return_direct : bool = True
     
-    path_db_folder = "./src/data"   # fixed: use consistent folder path
-    
-    os.makedirs(path_db_folder, exist_ok=True)
-
-    db_file = os.path.join(path_db_folder, "vec.db")
-    
-    connection = SQLiteVec.create_connection(db_file=db_file)
-    vt = init_vectorstore(_MODEL, path_db_folder, connection = connection) # oke
-    
-    # if not os.path.exists('./src/data/index.pkl'):
-    #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action='write') # oke
-    # else:
-    #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action='load') # oke
+    def _run(
+            self, 
+            text_query: str,
+            k: int,
+            # run_manager: Optional[CallbackManagerForToolRun] = None
+        ) -> str:
         
-    results = vt.similarity_search(query.lower(), k=k)
-    vector_results = [doc.page_content for doc in results]
+        # """Use the tool."""
+        # if self.model_search_embedding_hf is None:
+        #     self.model_search_embedding_hf = get_model_qwen(device='cuda:0') # oke
+        #     # model_search_embedding_hf = get_qwen_embedding_hf_endpoint() # oke
+
+        docs = run_load_data_to_embedding('./src/store/comque_new.csv')
+        docs = run_normalization_data(docs, path_stopwords='./src/store/stopwords-vietnamese.txt')
+                
+        tokenized_corpus = [doc.split(",") for doc in docs]
+        bm25 = BM25Okapi(tokenized_corpus)
+        
+        # if not os.path.exists('./src/data/index.pkl'):
+        #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=2) # oke
+        # else:
+        #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=0) # oke
+            
+        results = _VEC_STORE.similarity_search(text_query.lower(), k=k)
+        vector_results = [doc.page_content for doc in results]
+        
+        tokenized_query = text_query.split(" ")
+        result_index = list(bm25.get_top_n(tokenized_query, docs, n=k))
+        result_bm25 = [result_index[idx] for idx in range(k)]
     
-    header = ["Mã món ăn", "Phân loại", "Tên món ăn", "Mô tả ngắn",
-        "Nguyên liệu", "Vị cay / chua / mặn / ngọt", 
-        "Hương vị nổi bật", "Giá món ăn (VNĐ)", "Khẩu phần ăn"
-    ]
-    header_str = ",".join(header)
-    vector_results_str = "\n".join(vector_results)
-    # combined_results = [
-    #     {"_id": f"{v.split()[0]}", "_content": " ".join(v.split()[1:])}
-    #     for v in vector_results
-    # ]
-    # return "\n".join(
-    #     [f"{r.get('_id', 'N/A')} - {r.get('_content', '')}" for r in combined_results]
-    # )
-    return "\n".join([header_str,vector_results_str])
+        header = ["Mã món ăn", "Phân loại", "Tên món ăn", "Mô tả ngắn", "Nguyên liệu", "Vị giác nổi bật", 
+            "Hương vị nổi bật", "Giá món ăn (VND)", "Khẩu phần ăn"
+        ]
+        header_str = ", ".join(header)
+        combined_similarity = list(set(result_bm25 + vector_results))
+        vector_results_str = "\n".join(combined_similarity)
+
+        return "\n".join([header_str,vector_results_str])
+    
+    def _arun(self, 
+            text_query: str,
+            k: int,
+            # run_manager: Optional[AsyncCallbackManagerForToolRun] = None
+            ) -> str:
+        docs = run_load_data_to_embedding('./src/store/comque_new.csv')
+        docs = run_normalization_data(docs, path_stopwords='./src/store/stopwords-vietnamese.txt')
+                
+        tokenized_corpus = [doc.split(",") for doc in docs]
+        bm25 = BM25Okapi(tokenized_corpus)
+        
+        tokenized_query = text_query.split(" ")
+        result_index = list(bm25.get_top_n(tokenized_query, docs, n=k))
+        result_bm25 = [result_index[idx] for idx in range(k)]
+        
+        header = ["Mã món ăn", "Phân loại", "Tên món ăn", "Mô tả ngắn", "Nguyên liệu", "Vị giác nổi bật", 
+            "Hương vị nổi bật", "Giá món ăn (VND)", "Khẩu phần ăn"
+        ]
+        header_str = ", ".join(header)
+        combined_similarity = list(set(result_bm25))
+        vector_results_str = "\n".join(combined_similarity)
+
+        return "\n".join([header_str,vector_results_str])
     
 
 # Take order
@@ -319,4 +341,4 @@ def search_values_in_type(
         vals_counts.values.tolist()
     )).tolist()
 # exports all tools for agent
-all_agent_tools = [ TakeOrder(), UpdateOrderTool(), DeleteOrderTool(), search_type_category_and_people, search_values_in_type]
+all_agent_tools = [HybridSearchInput(), TakeOrder(), UpdateOrderTool(), DeleteOrderTool(), search_type_category_and_people, search_values_in_type]
