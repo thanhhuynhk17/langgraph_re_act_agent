@@ -18,9 +18,9 @@ def load_model(
         model=model_name,
         base_url=base_url,
         api_key=api_key,
-        temperature=0.6,
-        top_p=0.95,
-        extra_body={"top_k": 20, "min_p": 0.0},
+        temperature=0.7,
+        # top_p=0.95,
+        # extra_body={"top_k": 20, "min_p": 0.0},
         # IMPORTANT: Updated the stop sequence to the new opening tag format
         stop_sequences=[f"<{TAG_OBSERVATION}"],
         streaming=True,
