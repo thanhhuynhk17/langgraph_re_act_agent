@@ -19,63 +19,64 @@ class CustomAgentState(MessagesState):
 
     
 class HybridSearch(BaseModel):
+    """
+    Input schema for the HybridSearch tool.
+
+    This schema defines the input parameters required to perform a hybrid search 
+    (vector-based + BM25 keyword search). It ensures that:
+    1. The customer provides a non-empty query string (`text_query`).
+    2. The number of results `k` is a positive integer, within a reasonable limit.
+    """
+    
     text_query: str = Field(description="Customer data query questions")
     k: int = Field(description="Total number of query fields to search")
     
+    @model_validator(mode="before")
+    def validate_inputs(cls, values):
+        errors = []
+
+        # validate text_query
+        query = values.get("text_query", "").strip()
+        if not query:
+            errors.append("text_query cannot be empty. Example: 'món cá nướng'.")
+
+        # validate k
+        k = values.get("k", 0)
+        if not isinstance(k, int) or k <= 0:
+            errors.append("k must be a positive integer. Example: 5.")
+        elif k > 50:
+            errors.append("k is too large. Please choose a value ≤ 50 for performance reasons.")
+
+        if errors:
+            raise ValueError("\n".join(errors))
+
+        return values
+
 # FIXME: deduplicate allowed options
 VALID_TYPES = [
-    "món cá",
-    "món khai vị",
-    "món ăn chơi",
-    "món rau",
-    "món gỏi",
-    "món gà, vịt & trứng",
-    "món tôm & mực",
-    "món xào",
-    "nước mát nhà làm",
-    "lẩu",
-    "món thịt",
-    "món sườn & đậu hũ",
-    "món canh",
-    "các loại khô",
-    "tráng miệng"
+    "món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi",
+    "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm",
+    "lẩu", "món thịt", "món sườn & đậu hũ", "món canh", "các loại khô", "tráng miệng"
 ]
-class SearchTypeCategoryAndPeople(BaseModel):
-    """
-    Input schema for the search_type_category_and_people tool.
-    Finds rows in the food database that satisfy three conditions:
-    1. The 'type_of_food' column matches the specified category.
-    2. At least one of the descriptive columns contains the keyword:
-        - 'name_of_food'
-        - 'how_to_prepare'
-        - 'main_ingredients'
-        - 'taste'
-        - 'outstanding_fragrance'
-        - 'current_price'
-    """
 
+class SearchTypeCategory(BaseModel):
+    """
+    Input schema for the search_type_category tool.
+    Finds rows in the food database that satisfy two conditions:
+    1. The 'type_of_food' column matches the specified category.
+    2. At least one descriptive column contains the keyword.
+    """
+    
     value_type_of_food: Literal[
-        "món cá",
-        "món khai vị",
-        "món ăn chơi",
-        "món rau",
-        "món gỏi",
-        "món gà, vịt & trứng",
-        "món tôm & mực",
-        "món xào",
-        "nước mát nhà làm",
-        "lẩu",
-        "món thịt",
-        "món sườn & đậu hũ",
-        "món canh",
-        "các loại khô",
-        "tráng miệng"
+        "món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi",
+        "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm",
+        "lẩu", "món thịt", "món sườn & đậu hũ", "món canh", "các loại khô", "tráng miệng"
     ] = Field(
         ...,
         description="Food category filter. Example: 'món cá', 'món khai vị'."
     )
 
-    value_option: str = Field(
+    key_value_option: str = Field(
         ...,
         description="Keyword to search across descriptive columns. Example: 'cay', 'mặn', 'ngọt'."
     )
@@ -90,64 +91,53 @@ class SearchTypeCategoryAndPeople(BaseModel):
                 "value_type_of_food is missing. Possible values are:\n" +
                 ",".join(f'"{t}"' for t in VALID_TYPES)
             )
-        if "value_option" not in values or not values.get("value_option", "").strip():
-            errors.append("value_option is missing. Please provide a keyword to search. Example: 'cay', 'mặn', 'ngọt'.")
+        if "key_value_option" not in values or not values.get("key_value_option", "").strip():
+            errors.append("key_value_option is missing. Please provide a keyword to search. Example: 'cay', 'mặn', 'ngọt'.")
 
         if errors:
             raise ValueError("\n".join(errors))
 
         return values
 
-# FIXME: deduplicate allowed options
-VALID_COLUMNS = [
-    "type_of_food",
-    "name_of_food",
-    "how_to_prepare",
-    "main_ingredients",
-    "taste",
-    "outstanding_fragrance",
-    "current_price",
-    "number_of_people_eating"
-]
-class SearchValuesInTypeInput(BaseModel):
+class SearchMultiTypeCategory(BaseModel):
     """
-    Input schema for the search_values_in_type tool.
-    Counts occurrences of unique values in a specified column of the food database.
+    Schema cho tool search_multi_type_category.
+    Cho phép tìm kiếm đồng thời nhiều category với từ khóa tương ứng (1-1).
     """
 
-    name_col: Literal[
-        "type_of_food",
-        "name_of_food",
-        "how_to_prepare",
-        "main_ingredients",
-        "taste",
-        "outstanding_fragrance",
-        "current_price",
-        "number_of_people_eating"
-    ] = Field(
-        ...,
-        description=(
-            "The name of the column to analyze. Must be one of:"
-            "- 'type_of_food' (food category)"
-            "- 'name_of_food' (name of the dish)"
-            "- 'how_to_prepare' (preparation method)"
-            "- 'main_ingredients' (main ingredients)"
-            "- 'taste' (flavor profile)"
-            "- 'outstanding_fragrance' (distinct fragrance)"
-            "- 'current_price' (current price)"
-            "- 'number_of_people_eating' (number of people suitable for the dish)"
-        )
+    value_types_of_food: List[Literal[
+        "món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi",
+        "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm",
+        "lẩu", "món thịt", "món sườn & đậu hũ", "món canh", "các loại khô", "tráng miệng"
+    ]] = Field(
+        ..., description="Danh sách category. Ví dụ: ['món canh', 'món cá']"
+    )
+
+    key_value_options: List[str] = Field(
+        ..., description="Danh sách keyword, tương ứng với từng category. "
+                         "Ví dụ: ['chua', 'cá hú'] khi value_types_of_food=['món canh','món cá']"
     )
 
     @model_validator(mode="before")
-    def provide_guidance(cls, values):
-        # values is a dict; it may be empty
-        if "name_col" not in values or not values.get("name_col"):
+    def validate_alignment(cls, values):
+        types = values.get("value_types_of_food", [])
+        keys = values.get("key_value_options", [])
+        if not types:
             raise ValueError(
-                "name_col is missing. Please select one of the valid columns:\n" +
-                ",".join(f'"{col}"' for col in VALID_COLUMNS)
+                "value_types_of_food is missing. Possible values are: "
+                + ", ".join(VALID_TYPES)
+            )
+        if not keys:
+            raise ValueError(
+                "key_value_options is missing. Provide at least one keyword per category."
+            )
+        if len(types) != len(keys):
+            raise ValueError(
+                f"Length mismatch: {len(types)} categories but {len(keys)} keywords provided. "
+                "Both lists must have the same length."
             )
         return values
+    
 ## Take order
 
 # Load menu
@@ -244,3 +234,36 @@ class ChitChatCheck(BaseModel):
         description="True if the user message is casual chit-chat (greetings, small talk, thanks, etc.), "
                     "False if the user message is about restaurant info (menu, hours, ordering, etc.)."
     )
+
+
+# -------------------------
+# Column Value Count
+# -------------------------
+class ColumnValueCount(BaseModel):
+    """
+    Schema input cho ColumnValueCount.
+    Người dùng chỉ định tên cột muốn đếm tần suất giá trị.
+    """
+
+    name_col: Literal[
+        "type_of_food",
+        "name_of_food",
+        "how_to_prepare",
+        "main_ingredients",
+        "taste",
+        "outstanding_fragrance",
+        "current_price",
+        "number_of_people_eating"
+    ] = Field(
+        ...,
+        description="Tên cột để phân tích và đếm giá trị. "
+                    "Ví dụ: 'type_of_food', 'taste'."
+    )
+    
+class FoodTypeAndNameInput(BaseModel):
+    """
+    Input schema for FoodTypeAndNameTool.
+    No arguments are needed, the tool will always return
+    the two columns 'type_of_food' and 'name_of_food'.
+    """
+    pass
