@@ -19,8 +19,107 @@ from typing import ClassVar
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
+# from utils.tools import init_vectorstore_faiss
 from rank_bm25 import BM25Okapi
 from langchain_core.tools.base import ArgsSchema
+from langchain_core.tools import BaseTool
+from typing import ClassVar
+from src.utils.toolhelper import run_load_data_to_embedding, run_normalization_data, get_model_qwen, init_vectorstore, get_qwen_embedding_hf_endpoint
+import os
+
+load_dotenv()
+
+from langchain_tavily import TavilySearch
+search_tool = TavilySearch()
+
+
+# -------------------------
+# Module-level cache
+# -------------------------
+
+# _MODEL = get_qwen_embedding_hf_endpoint("http://localhost:8080") # chính xác
+# _MODEL = get_model_qwen() # chính xác
+# _MODEL = get_openai_embedding_base_url() # chưa chính xác
+_DATABASE = None
+_MODEL = get_model_qwen()
+_VEC_STORE = init_vectorstore(
+    _MODEL, 
+    "./src/data", 
+    connection = SQLiteVec.create_connection(db_file="./src/data/vec.db")
+    )
+# -------------------------
+# Hybrid Search Tool
+# -------------------------
+class HybridSearchInput(BaseTool):
+    name: str = "hybrid_search"
+    description: str = (
+        "Công cụ tìm kiếm kết hợp (hybrid Search) trên menu quán ăn, "
+        "sử dụng cả tìm kiếm ngữ nghĩa (embedding) và tìm kiếm theo từ khóa (BM25). "
+        "Thích hợp để trả lời các câu hỏi như: số lượng món ăn/đồ uống, "
+        "tên món, thành phần, giá, hoặc thông tin chi tiết trong thực đơn."
+    )
+    args_schema: Optional[ArgsSchema] = HybridSearch
+    return_direct : bool = True
+    
+    _vector_store: Optional[SQLiteVec] = None  # cache nội bộ
+
+    def _get_vector_store(self) -> SQLiteVec:
+        if self._vector_store is None:
+            print("Initializing vector store...")
+            self._vector_store = init_vectorstore(
+                    _MODEL, 
+                    "./src/data", 
+                    connection = SQLiteVec.create_connection(db_file="./src/data/vec.db")
+                )
+        return self._vector_store
+    
+    def _run(
+            self, 
+            text_query: str,
+            k: int,
+            # run_manager: Optional[CallbackManagerForToolRun] = None
+        ) -> str:
+        
+        # """Use the tool."""
+        # if self.model_search_embedding_hf is None:
+        #     self.model_search_embedding_hf = get_model_qwen(device='cuda:0') # oke
+        #     # model_search_embedding_hf = get_qwen_embedding_hf_endpoint() # oke
+
+        docs = run_load_data_to_embedding('./src/store/comque_new.csv')
+        docs = run_normalization_data(docs, path_stopwords='./src/store/stopwords-vietnamese.txt')
+                
+        tokenized_corpus = [doc.split(",") for doc in docs]
+        bm25 = BM25Okapi(tokenized_corpus)
+        
+        # if not os.path.exists('./src/data/index.pkl'):
+        #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=2) # oke
+        # else:
+        #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=0) # oke
+        vector_store = self._get_vector_store()
+        
+        results = vector_store.similarity_search(text_query.lower(), k=k)
+        vector_results = [doc.page_content for doc in results]
+        
+        tokenized_query = text_query.split(" ")
+        result_index = list(bm25.get_top_n(tokenized_query, docs, n=k))
+        result_bm25 = [result_index[idx] for idx in range(k)]
+    
+        header = ["Mã món ăn", "Phân loại", "Tên món ăn", "Mô tả ngắn", "Nguyên liệu", "Vị giác nổi bật", 
+            "Hương vị nổi bật", "Giá món ăn (VND)", "Khẩu phần ăn"
+        ]
+        header_str = ", ".join(header)
+        combined_similarity = list(set(result_bm25 + vector_results))
+        vector_results_str = "\n".join(combined_similarity)
+
+        return "\n".join([header_str,vector_results_str])
+    
+    async def _arun(self, *args, **kwargs) -> str:
+        """Async entry-point; re-use sync implementation."""
+        return self._run(*args, **kwargs)
+
+# Take order
+from src.utils.schemas import Dish, CustomerInfo, TakeOrderInput, UpdateOrderInput, DeleteOrderInput
+from typing import Any, List, Optional, Type
 from langchain_core.tools import BaseTool, ToolException
 from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
