@@ -32,9 +32,9 @@ def load_model(
         # top_p=0.95,
         # extra_body={"top_k": 20, "min_p": 0.0},
         # IMPORTANT: Updated the stop sequence to the new opening tag format
-        stop_sequences=[f"<{TAG_OBSERVATION}"],
         streaming=True,
-        max_completion_tokens=4096
+        reasoning_effort="low"
+        # max_completion_tokens=4096
     )
     return model
 
@@ -145,20 +145,41 @@ def process_ai_message(msg: AIMessage, all_tools: List[str]) -> AIMessage:
 
 def chitchat_classify(messages):
     last_msg = messages[-1]
-    if not isinstance(last_msg, HumanMessage): # do nothing
-        False
+    if not isinstance(last_msg, HumanMessage):  # nếu không phải message của user thì bỏ qua
+        return False
 
     OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", None)
     OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
 
     model = load_model(
-        model_name=OPENAI_MODEL_NAME,
-        base_url=OPENAI_BASE_URL,
-        api_key=OPENAI_API_KEY,
-        temperature=0 # greedy decoding 
+        model_name=str(OPENAI_MODEL_NAME),
+        base_url=str(OPENAI_BASE_URL),
+        api_key=str(OPENAI_API_KEY),
+        temperature=0  # greedy decoding 
     ).with_structured_output(ChitChatCheck)
-    
-    chitchatcheck = model.invoke(messages)
-    
+
+    system_msg = SystemMessage(content="""
+Bạn là một bộ phân loại tin nhắn.  
+Nhiệm vụ của bạn: nhận một tin nhắn từ người dùng và quyết định xem nó thuộc loại **chit-chat** (giao tiếp xã giao) hay **restaurant inquiry** (câu hỏi liên quan đến nhà hàng, món ăn, thực đơn, giờ mở cửa, đặt món, hủy/cập nhật đơn).  
+
+- Nếu tin nhắn mang tính chào hỏi, cảm ơn, xã giao, nói chuyện phiếm, khen/chê chung chung → gắn nhãn: is_chitchat = True.  
+  Ví dụ:  
+  - "Chào bạn"  
+  - "Bạn khỏe không?"  
+  - "Cảm ơn nhiều nhé!"  
+  - "Trời nay đẹp ghê"  
+
+- Nếu tin nhắn yêu cầu thông tin về nhà hàng, món ăn, menu, giá, giờ mở cửa, đặt bàn/đặt món, **hủy đơn**, **cập nhật đơn** → gắn nhãn: is_chitchat = False.  
+  Ví dụ:  
+  - "Nhà hàng có món chay không?"  
+  - "Mở cửa lúc mấy giờ?"  
+  - "Tôi muốn đặt bàn cho 4 người"  
+  - "Tôi muốn hủy đơn hàng vừa đặt"  
+  - "Có thể đổi món trong đơn của tôi được không?"
+""".strip())
+
+    raw_output = model.invoke([system_msg, *messages])
+    chitchatcheck = ChitChatCheck.parse_obj(raw_output)
     return chitchatcheck.is_chitchat
+

@@ -9,7 +9,7 @@ services:
     command: >
       --model-id Qwen/Qwen3-Embedding-0.6B
       --pooling mean
-      --max-batch-tokens 2048
+      --max-batch-tokens 1024
       --dtype float16
     deploy:
       resources:

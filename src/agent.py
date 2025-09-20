@@ -1,3 +1,10 @@
+# ================= 2. Prompts =================
+CHITCHAT_SYS = "Bạn là nhân viên lễ tân thân thiện của Cơm Quê Dượng Bầu."
+SPEED_SYS = (
+    "Bạn chỉ biết: địa chỉ (40E Ngô Đức Kế), giờ mở cửa (10-22h), có ship. "
+    "Khác 3 thông tin → chỉ được nói 'Chuyển sang agent khác'."
+)
+
 import os
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
@@ -99,7 +106,7 @@ async def get_graph(*args):
             "Only provide verified information and avoid speculation. Cite sources if available. If you are unsure, say 'Chưa có thông tin'. Explain your reasoning step by step before giving an answer."
         )
 
-        # print("system_msg", system_msg)
+        print("system_msg", system_msg)
         return [SystemMessage(system_msg), *state["messages"]]
 
     def use_pre_hook(state, config: RunnableConfig):
@@ -107,12 +114,15 @@ async def get_graph(*args):
         last_msg = state["messages"][-1]
         artifact_json = None
         if isinstance(last_msg, ToolMessage):
+            
             if f"<{TAG_OBSERVATION}>" in last_msg.content:
                 # Đã đúng format => giữ nguyên
                 state["messages"][-1].content = last_msg.content.strip()
+                print("True Tool msg:", last_msg.content)
             else:
                 # Chưa có => bọc trong cặp thẻ
                 state["messages"][-1].content = f"<{TAG_OBSERVATION}>{last_msg.content.strip()}</{TAG_OBSERVATION}>".strip()
+                print("FA Tool msg:", last_msg.content)
 
             if last_msg.artifact:
                 if isinstance(last_msg.artifact, BaseModel):
@@ -170,11 +180,10 @@ async def get_graph(*args):
                     post_model_hook=use_post_hook,
                     prompt=use_geoda_prompt,
                     state_schema=CustomAgentState,
-                    debug=True
+                    debug=False,
                 )
 
-    # Due to pre_model_hook can't directly jump to END, 
-    # wrap geoda_agent as a subgraph and add a chitchat_router node at begin
+    
     builder = StateGraph(CustomAgentState)
     def chitchat_router(state):
         is_chitchat = chitchat_classify(state["messages"])
@@ -213,3 +222,38 @@ async def get_graph(*args):
     graph = builder.compile()
 
     return graph
+
+
+
+    
+
+
+
+# # ================= 4. Graph 3 node =================
+# def get_graph(*args) -> StateGraph:
+#     config = args[0] if args else {}
+#     config.setdefault("recursion_limit", 99)
+    
+#     builder = StateGraph(CustomAgentState)
+#     builder.add_node("chitchat_node", chitchat_node)
+#     builder.add_node("speed_node",  speed_node)
+#     builder.add_node("geoda_node",  geoda_node)
+
+#     builder.set_entry_point("chitchat_node")
+
+#     # 1. chitchat → speed nếu KHÔNG phải xã giao
+#     builder.add_conditional_edges(
+#         "chitchat_node",
+#         lambda s: END if s.get("is_chitchat") else "speed_node",
+#         {"speed_node": "speed_node", END: END}
+#     )
+
+#     # 2. speed → geoda nếu có flag "goto"
+#     builder.add_conditional_edges(
+#         "speed_node",
+#         lambda s: "geoda_node" if s.get("goto") == "geoda_node" else END,
+#         {"geoda_node": "geoda_node", END: END}
+#     )
+
+#     builder.add_edge("geoda_node", END)
+#     return builder.compile()

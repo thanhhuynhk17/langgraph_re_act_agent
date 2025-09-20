@@ -1,132 +1,112 @@
 import os
-from typing import Literal, Dict, Optional
+from typing import Literal, Dict, Optional, Any, List, Type
 from langchain.tools import tool
-from src.utils.schemas import HybridSearch, SearchTypeCategory, SearchMultiTypeCategory, ColumnValueCount, FoodTypeAndNameInput
+from src.utils.schemas import (
+    HybridSearch, SearchTypeCategory, SearchMultiTypeCategory,
+    ColumnValueCount, FoodTypeAndNameInput,
+    Dish, CustomerInfo, TakeOrderInput, UpdateOrderInput, DeleteOrderInput
+)
+from src.utils.crud_orders_db import create_order, update_order, delete_order, get_order
 from langchain_tavily import TavilySearch
-# from langchain_openai import ChatOpenAI
 from src.utils.react_constants import *
 from langchain_community.vectorstores import SQLiteVec
-# import faiss
-# from langchain_community.vectorstores import FAISS
-from src.utils.toolhelper import run_load_data_to_embedding, run_normalization_data, get_model_qwen, get_qwen_embedding_hf_endpoint, get_openai_embedding_base_url, init_vectorstore_faiss, init_vectorstore
+from src.utils.toolhelper import (
+    run_load_data_to_embedding, run_normalization_data,
+    get_model_qwen, get_qwen_embedding_hf_endpoint,
+    get_openai_embedding_base_url, init_vectorstore_faiss
+)
+from typing import ClassVar
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
-# from utils.tools import init_vectorstore_faiss
 from rank_bm25 import BM25Okapi
 from langchain_core.tools.base import ArgsSchema
-from langchain_core.tools import BaseTool
-from typing import ClassVar
-from src.utils.toolhelper import run_load_data_to_embedding, run_normalization_data, get_model_qwen, init_vectorstore, get_qwen_embedding_hf_endpoint
-import os
-
-load_dotenv()
-
-from langchain_tavily import TavilySearch
-search_tool = TavilySearch()
-
-
-# -------------------------
-# Module-level cache
-# -------------------------
-
-# _MODEL = get_qwen_embedding_hf_endpoint("http://localhost:8080") # chính xác
-# _MODEL = get_model_qwen() # chính xác
-# _MODEL = get_openai_embedding_base_url() # chưa chính xác
-_DATABASE = None
-_MODEL = get_model_qwen()
-_VEC_STORE = init_vectorstore(
-    _MODEL, 
-    "./src/data", 
-    connection = SQLiteVec.create_connection(db_file="./src/data/vec.db")
-    )
-# -------------------------
-# Hybrid Search Tool
-# -------------------------
-class HybridSearchInput(BaseTool):
-    name: str = "hybrid_search"
-    description: str = (
-        "Công cụ tìm kiếm kết hợp (hybrid Search) trên menu quán ăn, "
-        "sử dụng cả tìm kiếm ngữ nghĩa (embedding) và tìm kiếm theo từ khóa (BM25). "
-        "Thích hợp để trả lời các câu hỏi như: số lượng món ăn/đồ uống, "
-        "tên món, thành phần, giá, hoặc thông tin chi tiết trong thực đơn."
-    )
-    args_schema: Optional[ArgsSchema] = HybridSearch
-    return_direct : bool = True
-    
-    _vector_store: Optional[SQLiteVec] = None  # cache nội bộ
-
-    def _get_vector_store(self) -> SQLiteVec:
-        if self._vector_store is None:
-            print("Initializing vector store...")
-            self._vector_store = init_vectorstore(
-                    _MODEL, 
-                    "./src/data", 
-                    connection = SQLiteVec.create_connection(db_file="./src/data/vec.db")
-                )
-        return self._vector_store
-    
-    def _run(
-            self, 
-            text_query: str,
-            k: int,
-            # run_manager: Optional[CallbackManagerForToolRun] = None
-        ) -> str:
-        
-        # """Use the tool."""
-        # if self.model_search_embedding_hf is None:
-        #     self.model_search_embedding_hf = get_model_qwen(device='cuda:0') # oke
-        #     # model_search_embedding_hf = get_qwen_embedding_hf_endpoint() # oke
-
-        docs = run_load_data_to_embedding('./src/store/comque_new.csv')
-        docs = run_normalization_data(docs, path_stopwords='./src/store/stopwords-vietnamese.txt')
-                
-        tokenized_corpus = [doc.split(",") for doc in docs]
-        bm25 = BM25Okapi(tokenized_corpus)
-        
-        # if not os.path.exists('./src/data/index.pkl'):
-        #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=2) # oke
-        # else:
-        #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=0) # oke
-        vector_store = self._get_vector_store()
-        
-        results = vector_store.similarity_search(text_query.lower(), k=k)
-        vector_results = [doc.page_content for doc in results]
-        
-        tokenized_query = text_query.split(" ")
-        result_index = list(bm25.get_top_n(tokenized_query, docs, n=k))
-        result_bm25 = [result_index[idx] for idx in range(k)]
-    
-        header = ["Mã món ăn", "Phân loại", "Tên món ăn", "Mô tả ngắn", "Nguyên liệu", "Vị giác nổi bật", 
-            "Hương vị nổi bật", "Giá món ăn (VND)", "Khẩu phần ăn"
-        ]
-        header_str = ", ".join(header)
-        combined_similarity = list(set(result_bm25 + vector_results))
-        vector_results_str = "\n".join(combined_similarity)
-
-        return "\n".join([header_str,vector_results_str])
-    
-    async def _arun(self, *args, **kwargs) -> str:
-        """Async entry-point; re-use sync implementation."""
-        return self._run(*args, **kwargs)
-
-# Take order
-from src.utils.schemas import Dish, CustomerInfo, TakeOrderInput, UpdateOrderInput, DeleteOrderInput
-from typing import Any, List, Optional, Type
 from langchain_core.tools import BaseTool, ToolException
 from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
-import pandas as pd
-from src.utils.react_constants import DEFAULT_TZ
-from src.utils.crud_orders_db import create_order, update_order, delete_order, get_order
 import pendulum
-import hashlib  # For hashing phone to generate table_id
+import re
+
+load_dotenv()
+
+search_tool = TavilySearch()
+
+from langchain_community.vectorstores import FAISS
+# -------------------------
+# Singleton cache
+# -------------------------
+_DATABASE: Optional[pd.DataFrame] = None
+_MODEL: Optional[Any] = None
+_VECTOR_STORE: Optional[FAISS] = None
+_BM25: Optional[BM25Okapi] = None
 
 def get_database() -> pd.DataFrame:
     global _DATABASE
     if _DATABASE is None:
         _DATABASE = pd.read_csv('./src/store/comque_new.csv')
     return _DATABASE
+
+def get_model():
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = get_openai_embedding_base_url()
+    return _MODEL
+def get_vector_store() -> FAISS:
+    global _VECTOR_STORE, _MODEL
+    if _VECTOR_STORE is None:
+        _VECTOR_STORE = init_vectorstore_faiss(
+            get_model(),
+            "./src/data",
+        )
+    return _VECTOR_STORE
+
+def get_bm25() -> BM25Okapi:
+    global _BM25
+    if _BM25 is None:
+        docs = get_database()["name_of_food"].fillna("").astype(str).tolist()
+        tokenized = [doc.split() for doc in docs]
+        _BM25 = BM25Okapi(tokenized)
+    return _BM25
+
+# -------------------------
+# Hybrid Search Tool
+# -------------------------
+
+class HybridSearchTool(BaseTool):
+    name: str = "hybrid_search"
+    description: str = (
+        "Tìm kiếm món ăn kết hợp embedding + BM25. "
+        "Input: text_query (str), k (int). "
+        "Output: danh sách món ăn phù hợp nhất."
+    )
+    args_schema: type[BaseModel] = HybridSearch
+    return_direct: ClassVar[bool] = False  # để agent còn suy nghĩ
+
+    def _run(self, text_query: str, k: int) -> str:
+        
+        if not text_query.strip():
+            return "Không có từ khóa tìm kiếm."
+
+        db = get_database()
+        bm25 = get_bm25()
+        vs  = get_vector_store()
+
+        # BM25
+        tokenized_q = text_query.lower().split()
+        bm25_idx = bm25.get_top_n(tokenized_q, db["name_of_food"].tolist(), n=k)
+
+        # Vector
+        vec_docs = vs.similarity_search(text_query.lower(), k=k)
+        vec_names = [d.metadata.get("name", "") for d in vec_docs]
+
+        # Gộp + uniq
+        merged = list(dict.fromkeys(bm25_idx + vec_names))[:k]
+
+        return "\n".join(merged) if merged else "Không tìm thấy món nào phù hợp."
+
+    async def _arun(self, *args, **kwargs):
+        return self._run(*args, **kwargs)
+
 
 # The class-based tool
 class TakeOrder(BaseTool):
@@ -232,6 +212,7 @@ class UpdateOrderTool(BaseTool):
     async def _arun(self, order_id: str, total_cost: Optional[float] = None, notes: Optional[str] = None) -> Dict[str, Any]:
         return self._run(order_id, total_cost, notes)
 
+import re
 
 class DeleteOrderTool(BaseTool):
     name: str = "delete_order"              # ✅ type annotation
@@ -251,209 +232,156 @@ class DeleteOrderTool(BaseTool):
 # -------------------------
 class SearchTypeCategoryTool(BaseTool):
     name: str = "search_type_category"
-    description: str = (
-        "Tìm kiếm món ăn trong cơ sở dữ liệu dựa trên loại món (category) và từ khóa liên quan. "
-        "Công cụ lọc theo nhóm món (ví dụ: món cá, món khai vị, lẩu, tráng miệng, v.v.) "
-        "và kết hợp tìm kiếm từ khóa trong các cột khác (tên, nguyên liệu, mô tả, v.v.), "
-        "trả về danh sách các món phù hợp với nhu cầu của khách hàng."
-    )
+    description: str = "Lọc món ăn theo loại và từ khóa tùy chọn"
     args_schema: Type[BaseModel] = SearchTypeCategory
-    handle_tool_error: bool = True
-    _database = None
+    return_direct: ClassVar[bool] = False
 
-    def _get_database(self) -> pd.DataFrame:
-        if self._database is None:
-            self._database = pd.read_csv("./src/store/comque_new.csv")
-        return self._database
-    
-    def _run(self, 
-            value_type_of_food: Literal["món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi", "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm", "lẩu", "món thịt", "món sườn & đậu hũ", "món canh", "các loại khô", "tráng miệng"], 
-            key_value_option: str
-        ) -> list:
-        
-        
-        _database = get_database()
+    # ---------- singleton ----------
+    _db: ClassVar[Optional[pd.DataFrame]] = None
 
-        value_option = key_value_option.lower()
+    @classmethod
+    def get_db(cls) -> pd.DataFrame:
+        if cls._db is None:
+            cls._db = get_database()
+        return cls._db
 
-        # 1️⃣ fixed filter on type_of_food
-        mask_type = _database["type_of_food"].str.lower().str.contains(value_type_of_food.lower(), na=False)
+    # ---------- logic ----------
+    def _run(
+        self,
+        value_type_of_food: Literal[
+            "món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi",
+            "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm",
+            "lẩu", "món thịt", "món sườn & đậu hũ", "món canh", "các loại khô", "tráng miệng"
+        ],
+        key_value_option: str
+    ) -> str:
+        df = self.get_db()
 
-        # 2️⃣ search across other columns (exclude number_of_people_eating)
-        search_cols = _database.columns.drop("number_of_people_eating")
-        mask_text = _database[search_cols].apply(
-            lambda col: col.astype(str).str.lower().str.contains(value_option, na=False)
-        )
-        mask_any = mask_text.any(axis=1)
+        # 1. Lọc chính xác loại món
+        mask_type = df["type_of_food"].str.lower().eq(value_type_of_food.lower())
 
-        # 4️⃣ combine
-        result = _database[mask_type & mask_any].reset_index(drop=True)
-        print()
-        print()
-        print(result)
-        print()
-        print()
-        return result.values.tolist()
-    
-    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
+        # 2. Lọc keyword (nếu có)
+        kw = key_value_option.strip()
+        if kw:
+            cols = df.columns.drop("number_of_people_eating")
+            mask_kw = df[cols].apply(
+                lambda col: col.astype(str).str.lower().str.contains(kw, na=False)
+            ).any(axis=1)
+            mask_type &= mask_kw
+
+        # 3. Lấy tên món & clean
+        names = df.loc[mask_type, "name_of_food"].dropna().unique()
+        cleaned = [re.sub(r"[^\w\s]", "", n).strip() for n in names if n.strip()]
+        return "\n".join(cleaned) if cleaned else "Không có món phù hợp."
+
+    async def _arun(self, *args, **kwargs):
         return self._run(*args, **kwargs)
-
+    
+# -------------------------  SearchMultiTypeCategoryTool  -------------------------
 class SearchMultiTypeCategoryTool(BaseTool):
     name: str = "search_multi_type_category"
     description: str = (
-        "Tìm kiếm nhiều loại món (categories) cùng lúc với từ khóa 1-1. "
-        "Ví dụ: 'cho 1 món mặn và 1 món canh' → "
-        "value_types_of_food=['món thịt','món canh'], key_value_options=['mặn','chua']."
+        "Tìm kiếm nhiều loại món ăn (categories) cùng lúc với từ khóa tương ứng 1-1. "
+        "Trả về tên món duy nhất, cách nhau dấu phẩy."
     )
     args_schema: Type[BaseModel] = SearchMultiTypeCategory
     handle_tool_error: bool = True
 
-    _database: Optional[pd.DataFrame] = None
+    def _run(self, categories: List[str], keywords: List[str]) -> str:
+        if len(categories) != len(keywords):
+            return "Số lượng categories và keywords phải bằng nhau."
 
-    def _get_database(self) -> pd.DataFrame:
-        if self._database is None:
-            self._database = pd.read_csv("./src/store/comque_new.csv")
-        return self._database
+        df = get_database()
+        out: List[str] = []
 
-    def _filter_category(self, db: pd.DataFrame, category: str, keyword: str) -> List[dict]:
-        mask_type = db["type_of_food"].astype(str).str.lower().str.contains(category.lower(), na=False)
+        for cat, kw in zip(categories, keywords):
+            mask = df["type_of_food"].str.lower().eq(cat.lower())
+            if kw.strip():
+                cols = [c for c in df.columns if c != "number_of_people_eating"]
+                mask &= df[cols].apply(
+                    lambda col: col.astype(str).str.lower().str.contains(kw.lower(), na=False)
+                ).any(axis=1)
 
-        cols = list(db.columns)
-        if "number_of_people_eating" in cols:
-            cols.remove("number_of_people_eating")
+            names = df.loc[mask, "name_of_food"].dropna().unique().tolist()
+            out.extend(names)
 
-        mask_text = db[cols].apply(
-            lambda col: col.astype(str).str.lower().str.contains(keyword.lower(), na=False)
-        )
-        mask_any = mask_text.any(axis=1)
+        # uniq + clean
+        cleaned = [re.sub(r"[^\w\s]", "", n).strip() for n in dict.fromkeys(out)]
+        return ", ".join(cleaned) if cleaned else "Không tìm thấy món nào."
 
-        filtered = db[mask_type & mask_any].reset_index(drop=True)
-        return filtered.to_dict(orient="records")
-
-    def _run(self, value_types_of_food: List[str], key_value_options: List[str]) -> dict:
-        db = self._get_database()
-        results = {}
-
-        for category, keyword in zip(value_types_of_food, key_value_options):
-            results[category] = self._filter_category(db, category, keyword)
-
-        return results
-
-    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
+    async def _arun(self, *args, **kwargs):
         return self._run(*args, **kwargs)
 
 class ColumnValueCountTool(BaseTool):
-    """
-    Công cụ phân tích tần suất giá trị trong cơ sở dữ liệu món ăn.
-
-    Đọc dữ liệu từ file CSV (comque_new.csv), sau đó đếm số lần xuất hiện 
-    của từng giá trị trong một cột cụ thể (ví dụ: 'type_of_food', 'taste', 'outstanding_fragrance'). 
-
-    Kết quả trả về dưới dạng danh sách [value, count, foods]:
-    - value: giá trị duy nhất trong cột (chuyển thành lowercase).
-    - count: số lần giá trị đó xuất hiện trong dữ liệu.
-    - foods: danh sách các món ăn (theo cột 'name_of_food') có giá trị đó.
-
-    Ví dụ:
-        Nếu chọn cột "type_of_food", công cụ có thể trả về:
-        [
-            ["món cá", 12, ["cá kho tộ", "cá hấp gừng", "cá chiên xù", ...]],
-            ["món canh", 8, ["canh chua cá lóc", "canh rau đay", ...]]
-        ]
-    """
-
     name: str = "column_value_count"
     description: str = (
-        "Phân tích dữ liệu menu để đếm số lần xuất hiện của các giá trị "
-        "trong một cột được chọn. Ngoài số lượng, công cụ còn liệt kê "
-        "danh sách các món ăn tương ứng với mỗi giá trị."
+        "Đếm tần suất xuất hiện và liệt kê món ăn theo từng giá trị trong cột. "
+        'VD: cột "type_of_food" → "món cá-12: cá kho, cá hấp"'
     )
     args_schema: Type[BaseModel] = ColumnValueCount
     handle_tool_error: bool = True
 
-    _database: Optional[pd.DataFrame] = None
+    _db: ClassVar[Optional[pd.DataFrame]] = None
 
-    def _get_database(self) -> pd.DataFrame:
-        if self._database is None:
-            self._database = pd.read_csv("./src/store/comque_new.csv")
-        return self._database
+    @classmethod
+    def get_db(cls) -> pd.DataFrame:
+        if cls._db is None:
+            cls._db = get_database()
+        return cls._db
 
-    def _run(self, name_col: str) -> List[tuple]:
-        """
-        Trả về danh sách (value, count, foods) với:
-        - value: giá trị trong cột (lowercase)
-        - count: số lần xuất hiện (int)
-        - foods: list các tên món ('name_of_food') tương ứng
-        """
-        db = self._get_database()
+    def _run(self, name_col: str) -> str:
+        df = self.get_db()
+        if name_col not in df.columns:
+            return f"Cột '{name_col}' không tồn tại."
 
-        if name_col not in db.columns:
-            raise ValueError(f"Invalid column '{name_col}'. Available columns: {', '.join(db.columns)}")
-
-        # loại bỏ hàng thiếu giá trị ở cột cần group
-        df = db.dropna(subset=[name_col])
-
-        # grouped: dùng named aggregation để tránh trùng tên cột khi reset_index()
+        # group nhanh & đếm
         grouped = (
-            df.groupby(name_col)
-            .agg(foods=('name_of_food', lambda s: s.tolist()))
-            .reset_index()
+            df.dropna(subset=[name_col])
+            .groupby(name_col, sort=False)["name_of_food"]
+            .apply(lambda x: ", ".join(dict.fromkeys(x.dropna())))
+            .reset_index(name="foods")
+            .assign(count=lambda d: d["foods"].str.count(",") + 1)
+            .sort_values("count", ascending=False)
         )
 
-        # đếm số phần tử trong list foods
-        grouped['count'] = grouped['foods'].str.len()
+        lines = [f"{str(row[name_col]).lower()}-{row['count']}: {row['foods']}"
+                 for _, row in grouped.iterrows()]
+        return "\n".join(lines) if lines else "Không có dữ liệu."
 
-        # sắp xếp theo count giảm dần để tiện (tuỳ chọn)
-        grouped = grouped.sort_values('count', ascending=False).reset_index(drop=True)
-
-        results = []
-        for _, row in grouped.iterrows():
-            value = str(row[name_col]).lower()
-            count = int(row['count'])
-            foods = " ".join(name for name in row['foods'])  # list of strings
-            results.append((value, count, foods))
-
-        print()
-        print()
-        print(results)
-        print()
-        print()
-        
-        return results
-
-
-    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
+    async def _arun(self, *args, **kwargs):
         return self._run(*args, **kwargs)
-
 class FoodTypeAndNameTool(BaseTool):
-    """
-    Tool to extract pairs of [type_of_food, name_of_food] from the food database.
-    Useful when we want to know which dishes belong to which categories.
-    """
-
     name: str = "food_type_and_name"
-    description: str = (
-        "Trích xuất danh sách gồm 2 cột: loại món ăn (type_of_food) và tên món ăn (name_of_food) "
-        "từ cơ sở dữ liệu. Dùng để liệt kê các món theo loại. Khi khách hỏi menu hay các món ăn chính/nổi tiếng của quán."
-        "Liệt kê tên một số món đắt nhất của mỗi loại"
-    )
+    description: str = "Liệt kê các món theo loại: 'type-food_name'"
     args_schema: Type[BaseModel] = FoodTypeAndNameInput
     handle_tool_error: bool = True
 
-    _database: Optional[pd.DataFrame] = None
+    def _run(self) -> str:
+        df = get_database()
+        pairs = (
+            df[["type_of_food", "name_of_food"]]
+            .dropna()
+            .drop_duplicates()
+            .itertuples(index=False, name=None)
+        )
+        return "\n".join(f"{t}-{n}" for t, n in pairs)
 
-    def _get_database(self) -> pd.DataFrame:
-        if self._database is None:
-            self._database = pd.read_csv("./src/store/comque_new.csv")
-        return self._database
+    async def _arun(self, *args, **kwargs):
+        return self._run(*args, **kwargs)
 
-    def _run(self) -> List[List[str]]:
-        db = self._get_database()
-        result = db[["type_of_food", "name_of_food"]].dropna().reset_index(drop=True)
-        return result.values.tolist()
-
-    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
-        return self._run()
+def warm_up():
+    """Chạy 1 lần khi worker khởi động"""
+    get_database()
+    get_bm25()
+    get_vector_store()
 
 # exports all tools for agent
-all_agent_tools = [HybridSearchInput(), TakeOrder(), UpdateOrderTool(), DeleteOrderTool(), SearchTypeCategoryTool(), SearchMultiTypeCategoryTool(), ColumnValueCountTool(), FoodTypeAndNameTool()]
+all_agent_tools = [
+    HybridSearchTool(), 
+    TakeOrder(), 
+    UpdateOrderTool(), 
+    DeleteOrderTool(), 
+    SearchTypeCategoryTool(), 
+    SearchMultiTypeCategoryTool(), 
+    ColumnValueCountTool()
+    ]

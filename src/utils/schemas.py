@@ -1,9 +1,5 @@
 from langgraph.managed import IsLastStep, RemainingSteps
-from pydantic import BaseModel, Field, model_validator
-# from langchain_core.callbacks import (
-#     AsyncCallbackManagerForToolRun,
-#     CallbackManagerForToolRun,
-# )
+from pydantic import BaseModel, Field, model_validator, field_validator
 from langchain_community.vectorstores import SQLiteVec
 from typing import Any, Dict, Literal
 from datetime import datetime
@@ -16,43 +12,13 @@ from langgraph.graph import MessagesState
 class CustomAgentState(MessagesState):
     remaining_steps: RemainingSteps
     is_chitchat: bool
+    is_speed: bool
 
-    
+# ------------- SEARCH -------------
 class HybridSearch(BaseModel):
-    """
-    Input schema for the HybridSearch tool.
+    text_query: str = Field(..., min_length=1, description="Từ khóa món ăn, ví dụ: 'cá kho'")
+    k: int = Field(5, ge=1, le=20, description="Số món trả về (max 20)")
 
-    This schema defines the input parameters required to perform a hybrid search 
-    (vector-based + BM25 keyword search). It ensures that:
-    1. The customer provides a non-empty query string (`text_query`).
-    2. The number of results `k` is a positive integer, within a reasonable limit.
-    """
-    
-    text_query: str = Field(description="Customer data query questions")
-    k: int = Field(description="Total number of query fields to search")
-    
-    @model_validator(mode="before")
-    def validate_inputs(cls, values):
-        errors = []
-
-        # validate text_query
-        query = values.get("text_query", "").strip()
-        if not query:
-            errors.append("text_query cannot be empty. Example: 'món cá nướng'.")
-
-        # validate k
-        k = values.get("k", 0)
-        if not isinstance(k, int) or k <= 0:
-            errors.append("k must be a positive integer. Example: 5.")
-        elif k > 50:
-            errors.append("k is too large. Please choose a value ≤ 50 for performance reasons.")
-
-        if errors:
-            raise ValueError("\n".join(errors))
-
-        return values
-
-# FIXME: deduplicate allowed options
 VALID_TYPES = [
     "món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi",
     "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm",
@@ -60,98 +26,38 @@ VALID_TYPES = [
 ]
 
 class SearchTypeCategory(BaseModel):
-    """
-    Input schema for the search_type_category tool.
-    Finds rows in the food database that satisfy two conditions:
-    1. The 'type_of_food' column matches the specified category.
-    2. At least one descriptive column contains the keyword.
-    """
-    
-    value_type_of_food: Literal[
-        "món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi",
-        "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm",
-        "lẩu", "món thịt", "món sườn & đậu hũ", "món canh", "các loại khô", "tráng miệng"
-    ] = Field(
-        ...,
-        description="Food category filter. Example: 'món cá', 'món khai vị'."
-    )
-
-    key_value_option: str = Field(
-        ...,
-        description="Keyword to search across descriptive columns. Example: 'cay', 'mặn', 'ngọt'."
-    )
-
-    @model_validator(mode="before")
-    def provide_guidance(cls, values):
-        errors = []
-
-        # values could be {} if input is empty
-        if "value_type_of_food" not in values:
-            errors.append(
-                "value_type_of_food is missing. Possible values are:\n" +
-                ",".join(f'"{t}"' for t in VALID_TYPES)
-            )
-        if "key_value_option" not in values or not values.get("key_value_option", "").strip():
-            errors.append("key_value_option is missing. Please provide a keyword to search. Example: 'cay', 'mặn', 'ngọt'.")
-
-        if errors:
-            raise ValueError("\n".join(errors))
-
-        return values
+    category: Literal[tuple(VALID_TYPES)] = Field(..., description="Loại món ăn")
+    keyword: str = Field("", description="Từ khóa thêm (VD: 'cay', 'mặn')")
 
 class SearchMultiTypeCategory(BaseModel):
-    """
-    Schema cho tool search_multi_type_category.
-    Cho phép tìm kiếm đồng thời nhiều category với từ khóa tương ứng (1-1).
-    """
+    categories: List[str] = Field(..., description="Danh sách loại món (VD: ['món thịt', 'món canh'])")
+    keywords: List[str] = Field(..., description="Từ khóa tương ứng (VD: ['mặn', 'chua'])")
 
-    value_types_of_food: List[Literal[
-        "món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi",
-        "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm",
-        "lẩu", "món thịt", "món sườn & đậu hũ", "món canh", "các loại khô", "tráng miệng"
-    ]] = Field(
-        ..., description="Danh sách category. Ví dụ: ['món canh', 'món cá']"
-    )
+    @field_validator("categories", "keywords")
+    def not_empty(cls, v):
+        if not v:
+            raise ValueError("Không được để trống")
+        return v
 
-    key_value_options: List[str] = Field(
-        ..., description="Danh sách keyword, tương ứng với từng category. "
-                         "Ví dụ: ['chua', 'cá hú'] khi value_types_of_food=['món canh','món cá']"
-    )
-
-    @model_validator(mode="before")
-    def validate_alignment(cls, values):
-        types = values.get("value_types_of_food", [])
-        keys = values.get("key_value_options", [])
-        if not types:
-            raise ValueError(
-                "value_types_of_food is missing. Possible values are: "
-                + ", ".join(VALID_TYPES)
-            )
-        if not keys:
-            raise ValueError(
-                "key_value_options is missing. Provide at least one keyword per category."
-            )
-        if len(types) != len(keys):
-            raise ValueError(
-                f"Length mismatch: {len(types)} categories but {len(keys)} keywords provided. "
-                "Both lists must have the same length."
-            )
-        return values
+    @model_validator(mode="after")
+    def same_len(self):
+        if len(self.categories) != len(self.keywords):
+            raise ValueError("Số lượng categories và keywords phải bằng nhau")
+        return self
     
 ## Take order
-
-# Load menu
-# FIXME: move into Tool class
-
 menu_df = pd.read_csv("./src/store/comque_new.csv", encoding="utf-8")
 menu_ids = menu_df["ID"].to_list()
 menu_names = menu_df["name_of_food"].to_list()
 menu_dict = dict(zip(menu_ids, menu_names))
 menu_desc = "\n".join([f"{k}: {v}" for k, v in menu_dict.items()])
-id_field_desc = f"Unique identifier of the dish. Must be one of the menu options (id: name):\n{menu_desc}"
-name_field_desc = f"Readable name of the dish. Must be one of the menu options (format id: name):\n{menu_desc}"
+id_field_desc = f"Unique identifier of the dish. Must be one of the menu options (id: name):\n{menu_df.to_dict()}"
+name_field_desc = f"Readable name of the dish. Must be one of the menu options (format id: name):\n{menu_df.to_dict()}"
+# Load menu
+# FIXME: move into Tool class
 
 class Dish(BaseModel):
+    
     id: int = Field(..., description=id_field_desc)
     name_of_food: str = Field(..., description=name_field_desc)
     quantity: int = Field(default=1, ge=1, description="Quantity of the dish (default=1, must be >=1).")
@@ -186,7 +92,7 @@ class TakeOrderInput(BaseModel):
     booking_time: datetime = Field(..., description="Time the customer wants the booking or pickup.")
     dishes: Optional[List[Dish]] = Field(None, description="List of ordered dishes. Can be empty for reservations.")
     note: Optional[str] = Field(None, description="Optional note from the customer (e.g., no chili, extra soup).")
-
+    
     @model_validator(mode="after")
     def validate_order(self):
         # 1.  Convert to local TZ (idempotent if already aware)
@@ -198,10 +104,10 @@ class TakeOrderInput(BaseModel):
 
         # 3.  Menu check
         if self.dishes:
+            menu_df = pd.read_csv("./src/store/comque_new.csv", encoding="utf-8")
             invalid = [
                 f"Món id={d.id}: {d.name_of_food}"
-                for d in self.dishes
-                if d.id not in menu_df["ID"].values
+                for d in self.dishes if d.id not in menu_df["ID"].values
             ]
             if invalid:
                 raise ValueError("Danh sách món không tìm thấy trong cơ sở dữ liệu:\n" + "\n".join(invalid))

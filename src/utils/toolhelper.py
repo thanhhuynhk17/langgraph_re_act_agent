@@ -82,7 +82,7 @@ def load_excel(path: str) -> pd.DataFrame:
     return df
 
 
-def convert_table_to_rows(df: pd.DataFrame) -> list:
+def convert_table_to_rows(df: pd.DataFrame) -> list[str]:
     result_list = []
     for _, row in df.iterrows():
         row_string = ", ".join(str(v) for v in row)
@@ -232,85 +232,3 @@ def init_vectorstore(model, db_folder: str, connection, action:str='write') -> S
 # CATEGORY SEARCH
 # -------------------------
 
-def search_values_in_type(database: pd.DataFrame, name_col: str) -> list[list]:
-    """
-    Count occurrences of unique values in a column.
-
-    Args:
-        name_col (str): Column name to analyze. 
-            Must be one of:
-            - 'type_of_food'
-            - 'name_of_food'
-            - 'how_to_prepare'
-            - 'main_ingredients'
-            - 'taste'
-            - 'outstanding_fragrance'
-            - 'current_price'
-            - 'number_of_people_eating'
-
-    Returns:
-        list[list]: A list of [value, count] pairs.
-                    Values are lowercased strings, counts are integers.
-    """
-    allowed_cols = {
-        'type_of_food',
-        'name_of_food',
-        'how_to_prepare',
-        'main_ingredients',
-        'taste',
-        'outstanding_fragrance',
-        'current_price',
-        'number_of_people_eating'
-    }
-
-    if name_col not in allowed_cols:
-        raise ValueError(
-            f"Invalid column '{name_col}'. Must be one of: {', '.join(allowed_cols)}"
-        )
-
-    vals_counts = database[name_col].value_counts()
-    return np.column_stack((
-        [str(name).lower() for name in vals_counts.index.tolist()],
-        vals_counts.values.tolist()
-    )).tolist()
-
-
-def search_type_category_and_people(database: pd.DataFrame, value_type_of_food: str, value_option: str) -> pd.DataFrame:
-    """
-    Search rows in the database that satisfy three conditions:
-    1. The 'type_of_food' column contains the specified food category.
-    2. At least one of the other descriptive columns contains the given keyword.
-        The following columns are searched:
-            - 'name_of_food'
-            - 'how_to_prepare'
-            - 'main_ingredients'
-            - 'taste'
-            - 'outstanding_fragrance'
-            - 'current_price'
-    3. The 'number_of_people_eating' column contains the given number of people.
-
-    Args:
-        value_type_of_food (str): Food category filter. 
-            Example: "món cá", "món khai vị", "món ăn chơi", "món rau", "món gỏi", "món gà, vịt & trứng", "món tôm & mực", "món xào", "nước mát nhà làm", "lẩu", "món thịt", "món sườn & đậu hũ", "món canh", "các loại khô", "tráng miệng", etc.
-        value_option (str): Keyword to search in descriptive columns. 
-            Example: "cay", "mặn", "ngọt".
-
-    Returns:
-        pd.DataFrame: Subset of the database that matches all three conditions,
-                    with the index reset.
-    """
-    value_option = value_option.lower()
-
-    # 1️⃣ fixed filter on type_of_food
-    mask_type = database["type_of_food"].str.lower().str.contains(value_type_of_food.lower(), na=False)
-
-    # 2️⃣ search across other columns (exclude type_of_food + number_of_people_eating)
-    search_cols = database.columns.drop(["type_of_food"])
-    mask_text = database[search_cols].apply(
-        lambda col: col.astype(str).str.lower().str.contains(value_option, na=False)
-    )
-    mask_any = mask_text.any(axis=1)
-
-    # 4️⃣ combine
-    result = database[mask_type & mask_any].reset_index(drop=True)
-    return result
