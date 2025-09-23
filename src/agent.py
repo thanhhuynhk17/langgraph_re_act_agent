@@ -16,7 +16,7 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES, RemoveMessage
 
 from pydantic import BaseModel
 
-from src.utils.helpers import load_model, chitchat_classify
+from src.utils.helpers import load_model
 
 OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", None)
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)
@@ -31,7 +31,7 @@ import httpx
 from src.utils.prompts import generate_tool_prompt, PROMPT_REACT, CHITCHAT_SYS_PROMPT
 from src.utils.react_constants import *
 from src.utils.helpers import process_ai_message
-from src.utils.schemas import menu_desc, CustomAgentState
+from src.utils.schemas import VALID_TYPES, CustomAgentState
 from src.utils.tools import all_agent_tools
 
 from src.utils.interrupt_any_tool import add_human_in_the_loop
@@ -89,7 +89,12 @@ async def get_graph(*args):
         )
 
         datetime_prompt = build_datetime_prompt()
-        menu_prompt = "\n".join(["Cơm quê Dượng Bầu menu (mã món ăn, tên món ăn):",menu_desc])
+        dish_types = "\n".join(VALID_TYPES)
+        menu_prompt = "\n".join([
+            "Dưới đây là các danh mục món ăn và thức uống của quán, phải liệt kê đầy đủ cho khách lựa chọn:",
+            dish_types,
+            "- Hỏi khách cung cấp các danh mục cụ thể."
+            ])
         info_prompt = "\n".join([
             "Dựa vào các mẫu trò chuyện sau để giao tiếp với khách",
             "Khách hỏi: Địa chỉ quán ở đâu?\nTrả lời: Dạ Cơm Quê Dượng Bầu ở địa chỉ Lầu 3 - chung cư 40E Ngô Đức Kế, Phường Sài Gòn, TP. HCM ạ, khi đến chung cư anh/chị cứ bấm thang máy lên lầu 3 nha.",
@@ -103,7 +108,6 @@ async def get_graph(*args):
             f"{datetime_prompt.strip()}\n\n"
             "Thông tin khuyến mãi: chưa có chương trình khuyến mãi.\n"
             "Thông tin chuyển khoản:\n- Anh Vinh quản lý - Ngân hàng VietinBank - Số tài khoản: 105872648804\n- Anh Đức WorldWide - Ngân hàng Techcombank - Số tài khoản: 9808888088\n\n"
-            "Only provide verified information and avoid speculation. Cite sources if available. If you are unsure, say 'Chưa có thông tin'. Explain your reasoning step by step before giving an answer."
         )
 
         print("system_msg", system_msg)
@@ -184,44 +188,44 @@ async def get_graph(*args):
                 )
 
     
-    builder = StateGraph(CustomAgentState)
-    def chitchat_router(state):
-        is_chitchat = chitchat_classify(state["messages"])
-        if is_chitchat:
-            print("chitchat hooked!")
-            res_msg = model.invoke([
-                SystemMessage(content=CHITCHAT_SYS_PROMPT),
-                *state["messages"]
-            ])
-            res_msg.content = f"<{TAG_FINAL_ANSWER}>{res_msg.content}</{TAG_FINAL_ANSWER}>"
+    # builder = StateGraph(CustomAgentState)
+    # def chitchat_router(state):
+    #     is_chitchat = chitchat_classify(state["messages"])
+    #     if is_chitchat:
+    #         print("chitchat hooked!")
+    #         res_msg = model.invoke([
+    #             SystemMessage(content=CHITCHAT_SYS_PROMPT),
+    #             *state["messages"]
+    #         ])
+    #         res_msg.content = f"<{TAG_FINAL_ANSWER}>{res_msg.content}</{TAG_FINAL_ANSWER}>"
 
-            return {
-                "messages": [res_msg],
-                "is_chitchat": True,
-            }
-        # not chitchat → pass state forward
-        return {
-            # "messages": state["messages"],
-            "is_chitchat": False,
-        }
+    #         return {
+    #             "messages": [res_msg],
+    #             "is_chitchat": True,
+    #         }
+    #     # not chitchat → pass state forward
+    #     return {
+    #         # "messages": state["messages"],
+    #         "is_chitchat": False,
+    #     }
 
-    builder.add_node("chitchat_router", chitchat_router)
-    builder.add_node("geoda_agent", geoda_agent)
+    # builder.add_node("chitchat_router", chitchat_router)
+    # builder.add_node("geoda_agent", geoda_agent)
 
-    # Conditional routing: read flag from state
-    def route_condition(state):
-        return "end" if state["is_chitchat"] else "geoda_agent"
+    # # Conditional routing: read flag from state
+    # def route_condition(state):
+    #     return "end" if state["is_chitchat"] else "geoda_agent"
 
-    builder.add_conditional_edges(
-        "chitchat_router",
-        route_condition,
-        {"end": END, "geoda_agent": "geoda_agent"}
-    )
+    # builder.add_conditional_edges(
+    #     "chitchat_router",
+    #     route_condition,
+    #     {"end": END, "geoda_agent": "geoda_agent"}
+    # )
 
-    builder.set_entry_point("chitchat_router")
-    graph = builder.compile()
+    # builder.set_entry_point("chitchat_router")
+    # graph = builder.compile()
 
-    return graph
+    return geoda_agent
 
 
 

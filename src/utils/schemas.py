@@ -46,13 +46,21 @@ class SearchMultiTypeCategory(BaseModel):
         return self
     
 ## Take order
-menu_df = pd.read_csv("./src/store/comque_new.csv", encoding="utf-8")
-menu_ids = menu_df["ID"].to_list()
-menu_names = menu_df["name_of_food"].to_list()
-menu_dict = dict(zip(menu_ids, menu_names))
-menu_desc = "\n".join([f"{k}: {v}" for k, v in menu_dict.items()])
-id_field_desc = f"Unique identifier of the dish. Must be one of the menu options (id: name):\n{menu_df.to_dict()}"
-name_field_desc = f"Readable name of the dish. Must be one of the menu options (format id: name):\n{menu_df.to_dict()}"
+# Định nghĩa biến toàn cục
+_menu_df = None
+
+def get_menu_df():
+    global _menu_df
+    if _menu_df is None:
+        _menu_df = pd.read_csv("./src/store/comque_new.csv", encoding="utf-8")
+    return _menu_df
+# _menu_df = get_menu_df()
+# menu_ids = _menu_df["ID"].to_list()
+# menu_names = _menu_df["name_of_food"].to_list()
+# menu_dict = dict(zip(menu_ids, menu_names))
+# menu_desc = "\n".join([f"{k}: {v}" for k, v in menu_dict.items()])
+id_field_desc = f"Unique identifier of the dish. Must be one of the menu options."
+name_field_desc = f"Readable name of the dish. Must be one of the menu options."
 # Load menu
 # FIXME: move into Tool class
 
@@ -65,7 +73,9 @@ class Dish(BaseModel):
     @model_validator(mode="after")
     def validate_fields(cls, dish):
         errors = []
-
+        _menu_df = get_menu_df()
+        menu_ids = _menu_df["ID"].to_list()
+        menu_names = _menu_df["name_of_food"].to_list()
         if dish.id not in menu_ids:
             errors.append(f"ID '{dish.id}' does not exist in the menu. Please find the **closest matching valid dish** from the menu to replace it.")
 
@@ -104,10 +114,10 @@ class TakeOrderInput(BaseModel):
 
         # 3.  Menu check
         if self.dishes:
-            menu_df = pd.read_csv("./src/store/comque_new.csv", encoding="utf-8")
+            _menu_df = get_menu_df()
             invalid = [
                 f"Món id={d.id}: {d.name_of_food}"
-                for d in self.dishes if d.id not in menu_df["ID"].values
+                for d in self.dishes if d.id not in _menu_df["ID"].values
             ]
             if invalid:
                 raise ValueError("Danh sách món không tìm thấy trong cơ sở dữ liệu:\n" + "\n".join(invalid))

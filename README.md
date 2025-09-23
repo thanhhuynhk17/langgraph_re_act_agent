@@ -123,3 +123,13 @@ for gpu
 ```powershell 
 (.venv) PS D:\llama-b6451-bin-win-cuda-12.4-x64> .\llama-server -m "C:\Users\lea26\Downloads\Qwen3-Embedding-0.6B-f16.gguf" --embedding --pooling last -ngl 99 -ub 8192 -c 32768 --threads 16 --threads-batch 16 --flash-attn on --host 0.0.0.0
 ```
+
+## cURL test
+
+```bash
+curl -s https://6be81cf05f50.ngrok-free.app/v1/chat/completions -H "Content-Type: application/json" -d '{
+    "messages": [{"role": "user", "content": "Hello, world!"}]
+  }'
+
+{"choices":[{"finish_reason":"stop","index":0,"message":{"role":"assistant","reasoning_content":"Okay, the user sent \"Hello, world!\" which is a classic first program in many programming languages. But since they're interacting with me, the AI, I should respond appropriately. They might be testing if I'm working, or maybe they're new to AI interactions.\n\nFirst, I need to acknowledge their greeting. A simple \"Hello!\" would be good. Then, maybe ask how I can assist them. But I should keep it friendly and open-ended. Let me check if there's any deeper meaning here. Maybe they're quoting the programming phrase, but in this context, it's probably just a greeting.\n\nI should avoid being too technical unless they ask. Since it's a greeting, a warm response is best. Let me make sure to include a smiley to keep it friendly. So, \"Hello! 😊 How can I assist you today?\" That sounds good. Let me confirm there are no typos. Yep, looks good. Keep it short and approachable.","content":"Hello! 😊 How can I assist you today?"}}],"created":1758478262,"model":"gpt-3.5-turbo","system_fingerprint":"b6239-cd36b5e5","object":"chat.completion","usage":{"completion_tokens":215,"prompt_tokens":12,"total_tokens":227},"id":"chatcmpl-B4UovQZgPA4U0n4bnKIYpmRvTVfxdx0K","timings":{"prompt_n":9,"prompt_ms":221.349,"prompt_per_token_ms":24.59433333333333,"prompt_per_second":40.659772576338725,"predicted_n":215,"predicted_ms":4162.873,"predicted_per_token_ms":19.362199999999998,"predicted_per_second":51.647023582030975}}
+```

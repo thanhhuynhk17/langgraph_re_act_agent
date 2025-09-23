@@ -1,35 +1,37 @@
 import os
-from typing import Literal, Dict, Optional, Any, List, Type
-from langchain.tools import tool
-from src.utils.schemas import (
-    HybridSearch, SearchTypeCategory, SearchMultiTypeCategory,
-    ColumnValueCount, FoodTypeAndNameInput,
-    Dish, CustomerInfo, TakeOrderInput, UpdateOrderInput, DeleteOrderInput
-)
-from src.utils.crud_orders_db import create_order, update_order, delete_order, get_order
-from langchain_tavily import TavilySearch
-from src.utils.react_constants import *
-from langchain_community.vectorstores import SQLiteVec
-from src.utils.toolhelper import (
-    run_load_data_to_embedding, run_normalization_data,
-    get_model_qwen, get_qwen_embedding_hf_endpoint,
-    get_openai_embedding_base_url, init_vectorstore_faiss
-)
-from typing import ClassVar
-import pandas as pd
+import re
+from datetime import datetime
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Type
+
 import numpy as np
+import pandas as pd
+import pendulum
 from dotenv import load_dotenv
+from langchain.tools import tool
+from langchain_community.vectorstores import SQLiteVec
+from langchain_core.tools import BaseTool, ToolException
+from langchain_core.tools.base import ArgsSchema
+from langchain_tavily import TavilySearch
+from pydantic import BaseModel, Field, model_validator
 # from utils.tools import init_vectorstore_faiss
 from rank_bm25 import BM25Okapi
-from langchain_core.tools.base import ArgsSchema
-from langchain_core.tools import BaseTool
-from typing import ClassVar
-from src.utils.toolhelper import run_load_data_to_embedding, run_normalization_data, get_model_qwen, init_vectorstore, get_qwen_embedding_hf_endpoint
-import os
+
+from src.utils.crud_orders_db import (create_order, delete_order, get_order,
+                                      update_order)
+from src.utils.react_constants import *
+# from langchain_community.vectorstores import FAISS
+from src.utils.schemas import (ColumnValueCount, CustomerInfo,
+                               DeleteOrderInput, Dish, FoodTypeAndNameInput,
+                               HybridSearch, SearchMultiTypeCategory,
+                               SearchTypeCategory, TakeOrderInput,
+                               UpdateOrderInput)
+from src.utils.toolhelper import (  # get_model_qwen,
+    get_openai_embedding_base_url, get_qwen_embedding_hf_endpoint,
+    init_vectorstore, run_load_data_to_embedding, run_normalization_data)
 
 load_dotenv()
 
-from langchain_tavily import TavilySearch
+
 search_tool = TavilySearch()
 
 
@@ -41,103 +43,101 @@ search_tool = TavilySearch()
 # _MODEL = get_model_qwen() # chính xác
 # _MODEL = get_openai_embedding_base_url() # chưa chính xác
 _DATABASE = None
-_MODEL = get_model_qwen()
-_VEC_STORE = init_vectorstore(
-    _MODEL, 
-    "./src/data", 
-    connection = SQLiteVec.create_connection(db_file="./src/data/vec.db")
-    )
+# _MODEL = get_model_qwen()
+# _VEC_STORE = init_vectorstore(
+#     _MODEL,
+#     "./src/data",
+#     connection=SQLiteVec.create_connection(db_file="./src/data/vec.db")
+# )
 # -------------------------
 # Hybrid Search Tool
 # -------------------------
-class HybridSearchInput(BaseTool):
-    name: str = "hybrid_search"
-    description: str = (
-        "Công cụ tìm kiếm kết hợp (hybrid Search) trên menu quán ăn, "
-        "sử dụng cả tìm kiếm ngữ nghĩa (embedding) và tìm kiếm theo từ khóa (BM25). "
-        "Thích hợp để trả lời các câu hỏi như: số lượng món ăn/đồ uống, "
-        "tên món, thành phần, giá, hoặc thông tin chi tiết trong thực đơn."
-    )
-    args_schema: Optional[ArgsSchema] = HybridSearch
-    return_direct : bool = True
-    
-    _vector_store: Optional[SQLiteVec] = None  # cache nội bộ
 
-    def _get_vector_store(self) -> SQLiteVec:
-        if self._vector_store is None:
-            print("Initializing vector store...")
-            self._vector_store = init_vectorstore(
-                    _MODEL, 
-                    "./src/data", 
-                    connection = SQLiteVec.create_connection(db_file="./src/data/vec.db")
-                )
-        return self._vector_store
-    
-    def _run(
-            self, 
-            text_query: str,
-            k: int,
-            # run_manager: Optional[CallbackManagerForToolRun] = None
-        ) -> str:
-        
-        # """Use the tool."""
-        # if self.model_search_embedding_hf is None:
-        #     self.model_search_embedding_hf = get_model_qwen(device='cuda:0') # oke
-        #     # model_search_embedding_hf = get_qwen_embedding_hf_endpoint() # oke
 
-        docs = run_load_data_to_embedding('./src/store/comque_new.csv')
-        docs = run_normalization_data(docs, path_stopwords='./src/store/stopwords-vietnamese.txt')
-                
-        tokenized_corpus = [doc.split(",") for doc in docs]
-        bm25 = BM25Okapi(tokenized_corpus)
-        
-        # if not os.path.exists('./src/data/index.pkl'):
-        #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=2) # oke
-        # else:
-        #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=0) # oke
-        vector_store = self._get_vector_store()
-        
-        results = vector_store.similarity_search(text_query.lower(), k=k)
-        vector_results = [doc.page_content for doc in results]
-        
-        tokenized_query = text_query.split(" ")
-        result_index = list(bm25.get_top_n(tokenized_query, docs, n=k))
-        result_bm25 = [result_index[idx] for idx in range(k)]
-    
-        header = ["Mã món ăn", "Phân loại", "Tên món ăn", "Mô tả ngắn", "Nguyên liệu", "Vị giác nổi bật", 
-            "Hương vị nổi bật", "Giá món ăn (VND)", "Khẩu phần ăn"
-        ]
-        header_str = ", ".join(header)
-        combined_similarity = list(set(result_bm25 + vector_results))
-        vector_results_str = "\n".join(combined_similarity)
+# class HybridSearchInput(BaseTool):
+#     name: str = "hybrid_search"
+#     description: str = (
+#         "Công cụ tìm kiếm kết hợp (hybrid Search) trên menu quán ăn, "
+#         "sử dụng cả tìm kiếm ngữ nghĩa (embedding) và tìm kiếm theo từ khóa (BM25). "
+#         "Thích hợp để trả lời các câu hỏi như: số lượng món ăn/đồ uống, "
+#         "tên món, thành phần, giá, hoặc thông tin chi tiết trong thực đơn."
+#     )
+#     args_schema: Optional[ArgsSchema] = HybridSearch
+#     return_direct: bool = True
 
-        return "\n".join([header_str,vector_results_str])
-    
-    async def _arun(self, *args, **kwargs) -> str:
-        """Async entry-point; re-use sync implementation."""
-        return self._run(*args, **kwargs)
+#     _vector_store: Optional[SQLiteVec] = None  # cache nội bộ
+
+#     def _get_vector_store(self) -> SQLiteVec:
+#         if self._vector_store is None:
+#             print("Initializing vector store...")
+#             self._vector_store = init_vectorstore(
+#                 _MODEL,
+#                 "./src/data",
+#                 connection=SQLiteVec.create_connection(
+#                     db_file="./src/data/vec.db")
+#             )
+#         return self._vector_store
+
+#     def _run(
+#         self,
+#         text_query: str,
+#         k: int,
+#         # run_manager: Optional[CallbackManagerForToolRun] = None
+#     ) -> str:
+
+#         # """Use the tool."""
+#         # if self.model_search_embedding_hf is None:
+#         #     self.model_search_embedding_hf = get_model_qwen(device='cuda:0') # oke
+#         #     # model_search_embedding_hf = get_qwen_embedding_hf_endpoint() # oke
+
+#         docs = run_load_data_to_embedding('./src/store/comque_new.csv')
+#         docs = run_normalization_data(
+#             docs, path_stopwords='./src/store/stopwords-vietnamese.txt')
+
+#         tokenized_corpus = [doc.split(",") for doc in docs]
+#         bm25 = BM25Okapi(tokenized_corpus)
+
+#         # if not os.path.exists('./src/data/index.pkl'):
+#         #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=2) # oke
+#         # else:
+#         #     vt = init_vectorstore_faiss(_MODEL, db_folder=path_db_folder, action=0) # oke
+#         vector_store = self._get_vector_store()
+
+#         results = vector_store.similarity_search(text_query.lower(), k=k)
+#         vector_results = [doc.page_content for doc in results]
+
+#         tokenized_query = text_query.split(" ")
+#         result_index = list(bm25.get_top_n(tokenized_query, docs, n=k))
+#         result_bm25 = [result_index[idx] for idx in range(k)]
+
+#         header = ["Mã món ăn", "Phân loại", "Tên món ăn", "Mô tả ngắn", "Nguyên liệu", "Vị giác nổi bật",
+#                   "Hương vị nổi bật", "Giá món ăn (VND)", "Khẩu phần ăn"
+#                   ]
+#         header_str = ", ".join(header)
+#         combined_similarity = list(set(result_bm25 + vector_results))
+#         vector_results_str = "\n".join(combined_similarity)
+
+#         return "\n".join([header_str, vector_results_str])
+
+#     async def _arun(self, *args, **kwargs) -> str:
+#         """Async entry-point; re-use sync implementation."""
+#         return self._run(*args, **kwargs)
+
 
 # Take order
-from src.utils.schemas import Dish, CustomerInfo, TakeOrderInput, UpdateOrderInput, DeleteOrderInput
-from typing import Any, List, Optional, Type
-from langchain_core.tools import BaseTool, ToolException
-from pydantic import BaseModel, Field, model_validator
-from datetime import datetime
-import pendulum
-import re
-
 load_dotenv()
 
 search_tool = TavilySearch()
 
-from langchain_community.vectorstores import FAISS
+
 # -------------------------
 # Singleton cache
 # -------------------------
 _DATABASE: Optional[pd.DataFrame] = None
-_MODEL: Optional[Any] = None
-_VECTOR_STORE: Optional[FAISS] = None
+# _MODEL: Optional[Any] = None
+_VECTOR_STORE: Optional[object] = None
 _BM25: Optional[BM25Okapi] = None
+
 
 def get_database() -> pd.DataFrame:
     global _DATABASE
@@ -145,66 +145,73 @@ def get_database() -> pd.DataFrame:
         _DATABASE = pd.read_csv('./src/store/comque_new.csv')
     return _DATABASE
 
-def get_model():
-    global _MODEL
-    if _MODEL is None:
-        _MODEL = get_openai_embedding_base_url()
-    return _MODEL
-def get_vector_store() -> FAISS:
-    global _VECTOR_STORE, _MODEL
-    if _VECTOR_STORE is None:
-        _VECTOR_STORE = init_vectorstore_faiss(
-            get_model(),
-            "./src/data",
-        )
-    return _VECTOR_STORE
 
-def get_bm25() -> BM25Okapi:
-    global _BM25
-    if _BM25 is None:
-        docs = get_database()["name_of_food"].fillna("").astype(str).tolist()
-        tokenized = [doc.split() for doc in docs]
-        _BM25 = BM25Okapi(tokenized)
-    return _BM25
+# def get_model():
+#     global _MODEL
+#     if _MODEL is None:
+#         _MODEL = get_openai_embedding_base_url()
+#     return _MODEL
+
+
+# def get_vector_store():
+#     global _VECTOR_STORE, _MODEL
+#     if _VECTOR_STORE is None:
+#         _VECTOR_STORE = init_vectorstore(
+#             get_model(),
+#             "./src/data",
+#             connection=SQLiteVec.create_connection(db_file='./src/data/vec.db')
+#         )
+#     return _VECTOR_STORE
+
+
+# def get_bm25() -> BM25Okapi:
+#     global _BM25
+#     if _BM25 is None:
+#         docs = get_database()["name_of_food"].fillna("").astype(str).tolist()
+#         tokenized = [doc.split() for doc in docs]
+#         _BM25 = BM25Okapi(tokenized)
+#     return _BM25
 
 # -------------------------
 # Hybrid Search Tool
 # -------------------------
 
-class HybridSearchTool(BaseTool):
-    name: str = "hybrid_search"
-    description: str = (
-        "Tìm kiếm món ăn kết hợp embedding + BM25. "
-        "Input: text_query (str), k (int). "
-        "Output: danh sách món ăn phù hợp nhất."
-    )
-    args_schema: type[BaseModel] = HybridSearch
-    return_direct: ClassVar[bool] = False  # để agent còn suy nghĩ
 
-    def _run(self, text_query: str, k: int) -> str:
-        
-        if not text_query.strip():
-            return "Không có từ khóa tìm kiếm."
+# class HybridSearchTool(BaseTool):
+#     name: str = "hybrid_search"
+#     description: str = (
+#         "Tìm kiếm món ăn kết hợp embedding + BM25. "
+#         "Input: text_query (str), k (int). "
+#         "Output: danh sách món ăn phù hợp nhất."
+#     )
+#     args_schema: type[BaseModel] = HybridSearch
+#     return_direct: ClassVar[bool] = False  # để agent còn suy nghĩ
 
-        db = get_database()
-        bm25 = get_bm25()
-        vs  = get_vector_store()
+#     def _run(self, text_query: str, k: int) -> str:
 
-        # BM25
-        tokenized_q = text_query.lower().split()
-        bm25_idx = bm25.get_top_n(tokenized_q, db["name_of_food"].tolist(), n=k)
+#         if not text_query.strip():
+#             return "Không có từ khóa tìm kiếm."
 
-        # Vector
-        vec_docs = vs.similarity_search(text_query.lower(), k=k)
-        vec_names = [d.metadata.get("name", "") for d in vec_docs]
+#         db = get_database()
+#         bm25 = get_bm25()
+#         vs = get_vector_store()
 
-        # Gộp + uniq
-        merged = list(dict.fromkeys(bm25_idx + vec_names))[:k]
+#         # BM25
+#         tokenized_q = text_query.lower().split()
+#         bm25_idx = bm25.get_top_n(
+#             tokenized_q, db["name_of_food"].tolist(), n=k)
 
-        return "\n".join(merged) if merged else "Không tìm thấy món nào phù hợp."
+#         # Vector
+#         vec_docs = vs.similarity_search(text_query.lower(), k=k)
+#         vec_names = [d.metadata.get("name", "") for d in vec_docs]
 
-    async def _arun(self, *args, **kwargs):
-        return self._run(*args, **kwargs)
+#         # Gộp + uniq
+#         merged = list(dict.fromkeys(bm25_idx + vec_names))[:k]
+
+#         return "\n".join(merged) if merged else "Không tìm thấy món nào phù hợp."
+
+#     async def _arun(self, *args, **kwargs):
+#         return self._run(*args, **kwargs)
 
 
 # The class-based tool
@@ -237,7 +244,8 @@ class TakeOrder(BaseTool):
         try:
             if dishes:
                 for raw in dishes:
-                    dish = Dish.model_validate(raw)   # <-- triggers your validator
+                    # <-- triggers your validator
+                    dish = Dish.model_validate(raw)
 
             # 2. ---- force local TZ if naive ----
             if isinstance(booking_time, str):
@@ -254,13 +262,14 @@ class TakeOrder(BaseTool):
             if dishes:
                 total_cost = float(
                     sum(
-                        self._parse_price(self.menu_df.set_index("ID").loc[d.id, "current_price"]) * d.quantity
+                        self._parse_price(self.menu_df.set_index(
+                            "ID").loc[d.id, "current_price"]) * d.quantity
                         for d in dishes
                     )
                 )
             else:
                 total_cost = 0.0
-            
+
             order_id, table_id = create_order(
                 guest_name=customer.name,
                 guest_phone_number=customer.phone,
@@ -272,7 +281,8 @@ class TakeOrder(BaseTool):
             )
 
             # 5. ---- pretty answer ----
-            dishes_str = ", ".join([f"{d.name_of_food}×{d.quantity}" for d in dishes]) if dishes else "Chưa chọn"
+            dishes_str = ", ".join(
+                [f"{d.name_of_food}×{d.quantity}" for d in dishes]) if dishes else "Chưa chọn"
             return (
                 f"✅ Đặt bàn thành công cho {customer.name} ({customer.phone}).\n"
                 f"Thời gian: {booking_time.strftime('%Y-%m-%d %H:%M %z')}\n"
@@ -311,7 +321,6 @@ class UpdateOrderTool(BaseTool):
     async def _arun(self, order_id: str, total_cost: Optional[float] = None, notes: Optional[str] = None) -> Dict[str, Any]:
         return self._run(order_id, total_cost, notes)
 
-import re
 
 class DeleteOrderTool(BaseTool):
     name: str = "delete_order"              # ✅ type annotation
@@ -329,6 +338,8 @@ class DeleteOrderTool(BaseTool):
 # -------------------------
 # Category Search Tool
 # -------------------------
+
+
 class SearchTypeCategoryTool(BaseTool):
     name: str = "search_type_category"
     description: str = "Lọc món ăn theo loại và từ khóa tùy chọn"
@@ -357,26 +368,31 @@ class SearchTypeCategoryTool(BaseTool):
         df = self.get_db()
 
         # 1. Lọc chính xác loại món
-        mask_type = df["type_of_food"].str.lower().eq(value_type_of_food.lower())
+        mask_type = df["type_of_food"].str.lower().eq(
+            value_type_of_food.lower())
 
         # 2. Lọc keyword (nếu có)
         kw = key_value_option.strip()
         if kw:
             cols = df.columns.drop("number_of_people_eating")
             mask_kw = df[cols].apply(
-                lambda col: col.astype(str).str.lower().str.contains(kw, na=False)
+                lambda col: col.astype(
+                    str).str.lower().str.contains(kw, na=False)
             ).any(axis=1)
             mask_type &= mask_kw
 
         # 3. Lấy tên món & clean
         names = df.loc[mask_type, "name_of_food"].dropna().unique()
-        cleaned = [re.sub(r"[^\w\s]", "", n).strip() for n in names if n.strip()]
+        cleaned = [re.sub(r"[^\w\s]", "", n).strip()
+                   for n in names if n.strip()]
         return "\n".join(cleaned) if cleaned else "Không có món phù hợp."
 
     async def _arun(self, *args, **kwargs):
         return self._run(*args, **kwargs)
-    
+
 # -------------------------  SearchMultiTypeCategoryTool  -------------------------
+
+
 class SearchMultiTypeCategoryTool(BaseTool):
     name: str = "search_multi_type_category"
     description: str = (
@@ -396,20 +412,32 @@ class SearchMultiTypeCategoryTool(BaseTool):
         for cat, kw in zip(categories, keywords):
             mask = df["type_of_food"].str.lower().eq(cat.lower())
             if kw.strip():
-                cols = [c for c in df.columns if c != "number_of_people_eating"]
+                cols = [c for c in df.columns if c !=
+                        "number_of_people_eating"]
                 mask &= df[cols].apply(
-                    lambda col: col.astype(str).str.lower().str.contains(kw.lower(), na=False)
+                    lambda col: col.astype(str).str.lower(
+                    ).str.contains(kw.lower(), na=False)
                 ).any(axis=1)
 
-            names = df.loc[mask, "name_of_food"].dropna().unique().tolist()
+            rows = (
+                df.loc[mask, ["ID","type_of_food","name_of_food","current_price","number_of_people_eating"]]
+                .dropna(subset=["name_of_food"])   # only drop rows without a name
+                .drop_duplicates()
+            )
+
+            # format each row to a string (customize format as needed)
+            names = rows.apply(lambda r: f"{int(r.ID)}: {r.name_of_food} — {r.current_price} VNĐ", axis=1).tolist()
             out.extend(names)
 
         # uniq + clean
-        cleaned = [re.sub(r"[^\w\s]", "", n).strip() for n in dict.fromkeys(out)]
-        return ", ".join(cleaned) if cleaned else "Không tìm thấy món nào."
+        header = "ID: Tên món — Giá tiền"
+        cleaned = [re.sub(r"[^\w\s]", "", n).strip()
+                for n in dict.fromkeys(out)]
+        return "\n".join([header, *cleaned]) if cleaned else "Không tìm thấy món nào."
 
     async def _arun(self, *args, **kwargs):
         return self._run(*args, **kwargs)
+
 
 class ColumnValueCountTool(BaseTool):
     name: str = "column_value_count"
@@ -449,6 +477,8 @@ class ColumnValueCountTool(BaseTool):
 
     async def _arun(self, *args, **kwargs):
         return self._run(*args, **kwargs)
+
+
 class FoodTypeAndNameTool(BaseTool):
     name: str = "food_type_and_name"
     description: str = "Liệt kê các món theo loại: 'type-food_name'"
@@ -468,19 +498,21 @@ class FoodTypeAndNameTool(BaseTool):
     async def _arun(self, *args, **kwargs):
         return self._run(*args, **kwargs)
 
-def warm_up():
-    """Chạy 1 lần khi worker khởi động"""
-    get_database()
-    get_bm25()
-    get_vector_store()
+
+# def warm_up():
+#     """Chạy 1 lần khi worker khởi động"""
+#     get_database()
+#     get_bm25()
+#     get_vector_store()
+
 
 # exports all tools for agent
 all_agent_tools = [
-    HybridSearchTool(), 
-    TakeOrder(), 
-    UpdateOrderTool(), 
-    DeleteOrderTool(), 
-    SearchTypeCategoryTool(), 
-    SearchMultiTypeCategoryTool(), 
-    ColumnValueCountTool()
-    ]
+    # HybridSearchTool(),
+    TakeOrder(),
+    # UpdateOrderTool(),
+    DeleteOrderTool(),
+    # SearchTypeCategoryTool(),
+    SearchMultiTypeCategoryTool(),
+    # ColumnValueCountTool()
+]
