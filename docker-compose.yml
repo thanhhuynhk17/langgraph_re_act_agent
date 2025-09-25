@@ -1,16 +1,59 @@
 services:
   embedding-service:
-    image: ghcr.io/huggingface/text-embeddings-inference:89-1.8
-    container_name: text-embeddings
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-embedding
+    # network_mode: host # Uncomment if you want to use host networking (on Linux)
+    runtime: nvidia
     ports:
-      - "8080:80"
+      - "8080:8080"
+    # environment:
+    #   - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}  # Optional: Your HF token
     volumes:
-      - ./data:/data
+      - ./models:/models  # Cache models
+    ipc: host  # Shared memory for PyTorch/vLLM
+
+    # --enforce-eager  Optional: For debugging; disable for better perf
     command: >
-      --model-id Qwen/Qwen3-Embedding-0.6B
-      --pooling mean
-      --max-batch-tokens 1024
-      --dtype float16
+      --model /models/Qwen3-Embedding-0.6B
+      --served-model-name Qwen/Qwen3-Embedding-0.6B
+      --task embed
+      --dtype bfloat16
+      --max-model-len 8192
+      --port 8080
+      --host 0.0.0.0
+      --gpu-memory-utilization 0.45
+      --hf_overrides '{"matryoshka_dimensions":[1024]}'
+    # restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  reranker-service:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-reranker
+    # network_mode: host # Uncomment if you want to use host networking (on Linux)
+    runtime: nvidia
+    # environment:
+    #   - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}  # Optional: Your HF token
+    volumes:
+      - ./models:/models  # Cache models
+    ipc: host  # Shared memory for PyTorch/vLLM
+    ports:
+      - "8081:8081"
+    command: >
+      --model /models/bge-reranker-v2-m3
+      --served-model-name BAAI/bge-reranker-v2-m3
+      --task score
+      --dtype bfloat16
+      --max-model-len 8192
+      --host 0.0.0.0
+      --port 8081
+      --gpu-memory-utilization 0.45
+    # restart: unless-stopped
     deploy:
       resources:
         reservations:

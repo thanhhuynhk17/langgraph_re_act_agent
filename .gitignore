@@ -87,3 +87,5 @@ docs/_build/
 *.sublime-workspace
 
 /data
+
+/models
