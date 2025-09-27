@@ -1,20 +1,68 @@
 services:
-  embedding-service:
-    image: ghcr.io/huggingface/text-embeddings-inference:89-1.8
-    container_name: text-embeddings
+  # PostgreSQL database for LangGraph and metadata
+  postgres:
+    image: postgres:15-alpine
+    container_name: aegra_postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB}"
     ports:
-      - "8080:80"
+      - "5432:5432"
     volumes:
-      - ./data:/data
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Aegra Server
+  aegra:
+    build:
+      context: .
+      dockerfile: deployments/docker/Dockerfile
+    container_name: aegra_server
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      AUTH_TYPE: "${AUTH_TYPE}"
+      DEBUG: "${DEBUG}"
+    ports:
+      - "${PORT}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./aegra.json:/app/aegra.json:ro
+      - ./graphs:/app/graphs
+      - ./src:/app/src:ro       # hot reload support
+      - ./auth.py:/app/auth.py:ro
+      - ./.env:/app/.env:ro
+      - ./alembic:/app/alembic:ro  # database migrations
     command: >
-      --model-id Qwen/Qwen3-Embedding-0.6B
-      --pooling mean
-      --max-batch-tokens 1024
-      --dtype float16
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      sh -c "
+        echo 'Running database migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting Aegra server...' &&
+        uvicorn src.agent_server.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+  # Redis (optional - for advanced queuing)
+  redis:
+    image: redis:7-alpine
+    container_name: aegra_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    profiles:
+      - redis
+
+volumes:
+  postgres_data:
+  redis_data:

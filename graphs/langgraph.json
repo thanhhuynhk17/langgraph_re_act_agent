@@ -1,0 +1,11 @@
+{
+    "python_version": "3.12",
+    "dockerfile_lines": [],
+    "dependencies": [
+      "../pyproject.toml"
+    ],
+    "graphs": {
+      "re_act_agent": "react_agent/agent.py:get_graph"
+    },
+    "env": "../.env"
+}
