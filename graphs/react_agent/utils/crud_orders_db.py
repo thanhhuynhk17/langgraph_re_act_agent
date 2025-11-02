@@ -4,6 +4,24 @@ SQLite-backed order CRUD
 - overlap    : ±45 min guard in assign_table()
 - booking_time handled as datetime everywhere (ISO string only inside DB)
 """
+# Configure logging based on environment variable
+import logging
+import os
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()  # Default to INFO if not set
+logging_levels = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL
+}
+logging.basicConfig(
+    level=logging_levels.get(LOG_LEVEL, logging.INFO),  # Fallback to INFO if invalid
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+logger.info("Logging configured with level: %s", LOG_LEVEL)
+
 from pathlib import Path
 import sqlite3
 import uuid
@@ -12,7 +30,6 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from react_agent.utils.react_constants import DEFAULT_TZ
 import pendulum
-import os
 DB_PATH =f"{os.getcwd()}\\react_agent\\store\\orders_db.db"
 # DB_PATH.parent.mkdir(parents=True, exist_ok=True)   # ensure folder exists
 
@@ -43,7 +60,7 @@ def get_connection():
 # Table creation
 # ------------------------------------------------------------------
 def create_table():
-    print("create_table run")
+    logger.info("Creating orders database table")
     with get_connection() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS orders (
@@ -80,7 +97,7 @@ def create_order(
     booking_time: datetime,
     notes: Optional[str] = None
 ) -> tuple[str, Optional[int]]:
-    print("create_order run")
+    logger.info(f"Creating order for {guest_name}")
     if not isinstance(booking_time, datetime):
         raise TypeError("booking_time must be a datetime object")
 
@@ -112,7 +129,7 @@ def get_order(order_id: str) -> Optional[Dict]:
 
     order = dict(row)
     order["dishes"] = json.loads(order["dishes"])
-    order["is_pre_paid"] = bool(order["is_pre_paid"])
+    order["is_pre_paid"] = bool(order["is_pr de_paid"])
     order["booking_time"] = datetime.fromisoformat(order["booking_time"])
     return order
 

@@ -1,19 +1,20 @@
 from langgraph.managed import IsLastStep, RemainingSteps
 from pydantic import BaseModel, Field, model_validator, field_validator
 from langchain_community.vectorstores import SQLiteVec
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Annotated, Sequence
 from datetime import datetime
 import pandas as pd
 from typing import List, Optional
 from react_agent.utils.react_constants import DEFAULT_TZ
 import pendulum
 from langgraph.graph import MessagesState
+from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 
 class CustomAgentState(MessagesState):
     remaining_steps: RemainingSteps
-    is_chitchat: bool
-    is_speed: bool
-
+    ui: Annotated[Sequence[AnyUIMessage], ui_message_reducer]
+    user_name: str = Field(..., description="Tên người dùng tương tác với agent")
+    user_uuid: str = Field(..., description="UUID duy nhất của người dùng tương tác với agent")
 # ------------- SEARCH -------------
 class HybridSearch(BaseModel):
     text_query: str = Field(..., min_length=1, description="Từ khóa món ăn, ví dụ: 'cá kho'")

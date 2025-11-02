@@ -1,3 +1,21 @@
+# Configure logging based on environment variable
+import logging
+import os
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()  # Default to INFO if not set
+logging_levels = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL
+}
+logging.basicConfig(
+    level=logging_levels.get(LOG_LEVEL, logging.INFO),  # Fallback to INFO if invalid
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+logger.info("Logging configured with level: %s", LOG_LEVEL)
+
 import numpy as np
 import pandas as pd
 import re
@@ -13,7 +31,6 @@ from uuid import uuid4
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 
-import os
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -231,4 +248,3 @@ def init_vectorstore(model, db_folder: str, connection, action:str='write') -> S
 # -------------------------
 # CATEGORY SEARCH
 # -------------------------
-

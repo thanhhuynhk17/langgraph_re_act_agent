@@ -1,12 +1,32 @@
 import os
+# Configure logging based on environment variable
+import logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()  # Default to INFO if not set
+logging_levels = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL
+}
+logging.basicConfig(
+    level=logging_levels.get(LOG_LEVEL, logging.INFO),  # Fallback to INFO if invalid
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+logger.info("Logging configured with level: %s", LOG_LEVEL)
+
 from dotenv import load_dotenv
 load_dotenv()
 
+import httpx
+import asyncio
 from react_agent.utils.react_constants import *
 import re
 import json
 import uuid
-from typing import Tuple, List, Union
+from datetime import datetime, timedelta
+from typing import Tuple, List, Union, Dict, Any
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
@@ -147,6 +167,180 @@ def process_ai_message(msg: AIMessage, all_tools: List[str]) -> AIMessage:
     return AIMessage(content=content, additional_kwargs=additional_kwargs)
 
 
+async def fetch_customer_orders(customer_id: str) -> Dict[str, Any]:
+    """
+    Fetch customer order history from the restaurant API for prompt enrichment.
+
+    Args:
+        customer_id: The customer's UUID
+
+    Returns:
+        Dict containing enriched customer data or empty dict if failed
+
+    Example API response:
+    {
+        "orders": [
+            {
+                "order_id": "ABC123",
+                "total_cost": 150000,
+                "dishes": [{"name": "Pho", "quantity": 2}],
+                "created_at": "2024-01-15T10:30:00Z"
+            }
+        ],
+        "total_orders": 5,
+        "favorite_dishes": ["Pho", "Bun Bo"],
+        "total_spent": 750000
+    }
+    """
+    try:
+        url = f"http://localhost:8000/api/customers/{customer_id}/orders"
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()
+    except (httpx.ConnectError, httpx.HTTPStatusError, httpx.TimeoutException) as e:
+        # Log error but don't block agent - return empty dict
+        logger.warning(f"Failed to fetch customer orders for {customer_id}: {e}")
+        return {}
+    except Exception as e:
+        # Catch any other unexpected errors
+        logger.error(f"Unexpected error fetching customer orders for {customer_id}: {e}")
+        return {}
+
+
+def enrich_customer_prompt(user_name: str, user_uuid: str, orders_data: Dict[str, Any]) -> str:
+    """
+    Create enriched customer prompt with detailed order history and preferences in formatted receipt style.
+
+    Args:
+        user_name: Customer name
+        user_uuid: Customer UUID
+        orders_data: Order data from API
+
+    Returns:
+        Formatted customer prompt string in receipt style
+    """
+    # Extract order insights
+    total_orders = orders_data.get("total_orders", 0)
+    total_spent = orders_data.get("total_spent", 0)
+    favorite_dishes = orders_data.get("favorite_dishes", [])
+
+    # Get orders array for detailed analysis
+    orders = orders_data.get("orders", [])
+
+    # Calculate detailed order statistics
+    orders_last_30_days = 0
+    orders_last_90_days = 0
+    total_dishes_ordered = 0
+    dish_frequency = {}
+    recent_order_date = None
+
+    if orders:
+        now = datetime.now()
+        thirty_days_ago = now - timedelta(days=30)
+        ninety_days_ago = now - timedelta(days=90)
+
+        for order in orders:
+            # Parse order date
+            created_at = order.get("created_at")
+            if created_at:
+                try:
+                    # Handle ISO format dates
+                    if 'T' in created_at:
+                        order_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    else:
+                        order_date = datetime.strptime(created_at, "%Y-%m-%d")
+
+                    # Count orders in time periods
+                    if order_date >= thirty_days_ago:
+                        orders_last_30_days += 1
+                    if order_date >= ninety_days_ago:
+                        orders_last_90_days += 1
+
+                    # Track most recent order
+                    if recent_order_date is None or order_date > recent_order_date:
+                        recent_order_date = order_date
+
+                except (ValueError, AttributeError):
+                    pass
+
+            # Count total dishes and frequency
+            dishes = order.get("dishes", [])
+            for dish in dishes:
+                if isinstance(dish, dict):
+                    dish_name = dish.get("name", "")
+                    quantity = dish.get("quantity", 1)
+                    total_dishes_ordered += quantity
+                    if dish_name:
+                        dish_frequency[dish_name] = dish_frequency.get(dish_name, 0) + quantity
+
+    # Find most ordered dish
+    most_ordered_dish = None
+    if dish_frequency:
+        most_ordered_dish = max(dish_frequency.items(), key=lambda x: x[1])[0]
+
+    # Calculate average order value
+    avg_order_value = 0
+    if total_orders > 0 and total_spent > 0:
+        avg_order_value = total_spent / total_orders
+
+    # Format with proper spacing using f-strings
+    separator = "----------------------------------------"
+
+    formatted_spent = ".0f"
+    if total_spent > 0:
+        formatted_spent = ",.0f"
+
+    favorite_dishes_str = ", ".join(favorite_dishes[:3]) if favorite_dishes else ""
+
+    # Build formatted receipt
+    receipt_lines = [
+        "🧾 Thông tin Khách Hàng",
+        separator,
+        f"Tên:              {user_name}",
+        f"UUID:             {user_uuid}",
+    ]
+
+    # Add order information
+    if total_orders > 0:
+        receipt_lines.append(f"Đã đặt:           {total_orders} đơn")
+
+        # Add detailed order statistics
+        if orders_last_30_days > 0:
+            receipt_lines.append(f"30 ngày gần nhất: {orders_last_30_days} đơn")
+
+        if orders_last_90_days > 0:
+            receipt_lines.append(f"90 ngày gần nhất: {orders_last_90_days} đơn")
+
+        if avg_order_value > 0:
+            formatted_avg = ",.0f"
+            receipt_lines.append(f"Giá trị TB/đơn:   {avg_order_value:{formatted_avg}} vnđ")
+
+        if total_dishes_ordered > 0:
+            receipt_lines.append(f"Tổng món đã gọi:  {total_dishes_ordered} món")
+
+        if most_ordered_dish:
+            receipt_lines.append(f"Món gọi nhiều:    {most_ordered_dish}")
+
+        if total_spent > 0:
+            receipt_lines.append(f"Tổng chi tiêu:    {total_spent:{formatted_spent}} vnđ")
+
+        if favorite_dishes_str:
+            receipt_lines.append(f"Món yêu thích:    {favorite_dishes_str}")
+
+        if recent_order_date:
+            date_str = recent_order_date.strftime("%Y-%m-%d")
+            receipt_lines.append(f"Đơn gần nhất:     {date_str}")
+        else:
+            receipt_lines.append("Đơn gần nhất:     N/A")
+    else:
+        receipt_lines.append("Chưa có đơn hàng")
+
+    receipt_lines.append(separator)
+
+    return "\n".join(receipt_lines)
+
+
 # # Router: check user message is chitchat or ask bussiness info
 
 # def chitchat_classify(messages):
@@ -188,4 +382,3 @@ def process_ai_message(msg: AIMessage, all_tools: List[str]) -> AIMessage:
 #     raw_output = model.invoke([system_msg, *messages])
 #     chitchatcheck = ChitChatCheck.parse_obj(raw_output)
 #     return chitchatcheck.is_chitchat
-
