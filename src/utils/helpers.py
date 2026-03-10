@@ -15,7 +15,7 @@ from src.utils.schemas import ChitChatCheck
 from langchain_core.messages import SystemMessage, HumanMessage
 
 def load_model(
-    model_name="qwen3-30b-a3b",
+    model_name="qwen3-8b-q8-0-gguf",
     base_url="http://localhost:8000/v1",
     api_key="dummy_text",
     temperature=0.7
@@ -25,7 +25,7 @@ def load_model(
     to use the new XML tag format for observations.
     """
     model = ChatOpenAI(
-        model=model_name,
+        model="qwen3-8b-q8-0-gguf",
         base_url=base_url,
         api_key=api_key,
         temperature=temperature,

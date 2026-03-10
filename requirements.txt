@@ -1,29 +1,41 @@
-httpx==0.28.1
+# === Core LLM & LangChain ===
 langchain
 langchain_core==0.3.75
 langchain_mcp_adapters==0.1.9
 langchain_openai==0.3.32
 langchain_tavily==0.2.11
+langchain-community==0.3.30
+langchain-huggingface
 langgraph==0.6.6
+langgraph-api
+langgraph-cli
+
+# === HTTP & API ===
+httpx==0.28.1
+requests==2.32.5
+
+# === Data & ML ===
 numpy==2.3.2
 pandas==2.3.2
-pydantic==2.11.7
-python-dotenv==1.1.1
-rank_bm25==0.2.2
-sentence-transformers==5.1.0
-
 torch
 torchvision
 torchaudio
+sentence-transformers==5.1.0
+faiss-cpu
+rank_bm25==0.2.2
 underthesea
 
-langchain-openai
-langchain-community
-sqlite-vec==0.1.6
-langgraph-api
-langgraph-cli
-langchain-huggingface
-faiss-cpu
+# === Validation & Config ===
+pydantic==2.11.7
+python-dotenv==1.1.1
 
+# === Vector DB ===
+sqlite-vec==0.1.6
+
+# === Graph & Time ===
 pendulum==3.1.0
 graphiti_core==0.20.4
+
+# === UI & Utils ===
+rich==13.9.4
+filelock==3.16.0

@@ -27,6 +27,8 @@ model = load_model(
     api_key=OPENAI_API_KEY
 )
 
+# print(OPENAI_MODEL_NAME, OPENAI_BASE_URL, OPENAI_API_KEY)
+
 import httpx
 from src.utils.prompts import generate_tool_prompt, PROMPT_REACT, CHITCHAT_SYS_PROMPT
 from src.utils.react_constants import *

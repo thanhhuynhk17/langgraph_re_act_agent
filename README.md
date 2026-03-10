@@ -5,6 +5,7 @@ This project demonstrates how to use **LangGraph** with a React-based agent, app
 ![react_agent_mobile](https://github.com/user-attachments/assets/58c88fbc-8227-4f96-8182-f9043d25960f)
 
 To run in development mode, use:
+
 ```cli
 BG_JOB_ISOLATED_LOOPS=true langgraph dev --host 0.0.0.0 --allow-blocking
 ```
@@ -22,7 +23,7 @@ OPENAI_API_MODEL_NAME_EMBED=qwen3-embed
 
 # Project Structure
 
-```
+```c
 .
 ├── .env
 ├── .env.example
